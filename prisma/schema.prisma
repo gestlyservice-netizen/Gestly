@@ -1,13 +1,90 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../app/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id          String   @id @default(cuid())
+  clerkId     String   @unique
+  email       String
+  companyName String
+  siret       String?
+  address     String?
+  phone       String?
+  createdAt   DateTime @default(now())
+
+  clients  Client[]
+  devis    Devis[]
+  factures Facture[]
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  email     String?
+  phone     String?
+  address   String?
+  createdAt DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  devis    Devis[]
+  factures Facture[]
+}
+
+model Devis {
+  id           String    @id @default(cuid())
+  userId       String
+  clientId     String
+  number       String
+  status       String    @default("brouillon")
+  totalHT      Float
+  totalTVA     Float
+  totalTTC     Float
+  validityDays Int       @default(30)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  sentAt       DateTime?
+  signedAt     DateTime?
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client   Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lines    DevisLine[]
+  factures Facture[]
+}
+
+model DevisLine {
+  id          String @id @default(cuid())
+  devisId     String
+  description String
+  quantity    Float
+  unitPriceHT Float
+  tvaRate     Float  @default(20)
+  totalHT     Float
+
+  devis Devis @relation(fields: [devisId], references: [id], onDelete: Cascade)
+}
+
+model Facture {
+  id        String    @id @default(cuid())
+  userId    String
+  clientId  String
+  devisId   String?
+  number    String
+  totalHT   Float
+  totalTVA  Float
+  totalTTC  Float
+  status    String    @default("emise")
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  devis  Devis?  @relation(fields: [devisId], references: [id], onDelete: SetNull)
 }
