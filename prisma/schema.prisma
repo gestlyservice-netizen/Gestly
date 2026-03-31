@@ -10,14 +10,20 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(cuid())
-  clerkId     String   @unique
-  email       String
-  companyName String
-  siret       String?
-  address     String?
-  phone       String?
-  createdAt   DateTime @default(now())
+  id                   String    @id @default(cuid())
+  clerkId              String    @unique
+  email                String
+  companyName          String
+  siret                String?
+  address              String?
+  phone                String?
+  logoUrl              String?
+  defaultRemindDelay   Int       @default(7)
+  defaultRemindMessage String?
+  subscriptionStatus   String    @default("trial")
+  trialEndsAt          DateTime?
+  stripeCustomerId     String?
+  createdAt            DateTime  @default(now())
 
   clients  Client[]
   devis    Devis[]
@@ -44,9 +50,9 @@ model Devis {
   clientId     String
   number       String
   status       String    @default("brouillon")
-  totalHT      Float
-  totalTVA     Float
-  totalTTC     Float
+  totalHT      Float     @default(0)
+  totalTVA     Float     @default(0)
+  totalTTC     Float     @default(0)
   validityDays Int       @default(30)
   notes        String?
   createdAt    DateTime  @default(now())
