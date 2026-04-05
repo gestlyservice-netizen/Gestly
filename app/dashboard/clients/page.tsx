@@ -116,7 +116,7 @@ export default function ClientsPage() {
         const json = await res.json().catch(() => ({}));
         setApiError(json.error ?? `Erreur ${res.status}`);
       }
-    } catch (e) {
+    } catch {
       setApiError("Erreur réseau, réessayez.");
     } finally {
       setSubmitting(false);

@@ -6,7 +6,7 @@ import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
-import { Plus, Trash2, Loader2, ChevronLeft, UserPlus } from "lucide-react";
+import { Plus, Trash2, Loader2, ChevronLeft, UserPlus, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -65,6 +65,17 @@ export default function NouveauDevisPage() {
   const [addingClient, setAddingClient] = useState(false);
   const pendingStatus = useRef<"brouillon" | "envoye">("brouillon");
 
+  /* ── Recherche client ── */
+  const [clientSearch, setClientSearch] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  const filteredClients = clientSearch.length === 0
+    ? clients
+    : clients.filter((c) =>
+        c.name.toLowerCase().includes(clientSearch.toLowerCase())
+      );
+
   /* ── Formulaire devis ──────────────────────────────── */
   const {
     register,
@@ -119,6 +130,23 @@ export default function NouveauDevisPage() {
   };
 
   useEffect(() => { fetchClients(); }, []);
+
+  /* ── Fermer dropdown au clic extérieur ── */
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const selectClient = (c: Client) => {
+    setValue("clientId", c.id);
+    setClientSearch(c.name);
+    setShowDropdown(false);
+  };
 
   /* ── Soumettre le devis ─────────────────────────────── */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -199,27 +227,47 @@ export default function NouveauDevisPage() {
             <div className="flex-1">
               {loadingClients ? (
                 <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
-              ) : clients.length === 0 ? (
-                <div className="flex items-center gap-2 text-sm text-slate-500 border border-dashed border-slate-300 rounded-lg px-4 py-2.5">
-                  Aucun client —{" "}
-                  <button
-                    type="button"
-                    onClick={() => { resetClient(); setAddClientOpen(true); }}
-                    className="text-blue-600 hover:underline font-medium"
-                  >
-                    Ajoutez d&apos;abord un client
-                  </button>
-                </div>
               ) : (
-                <select
-                  className={selectCls}
-                  {...register("clientId")}
-                >
-                  <option value="">— Sélectionnez un client —</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <div ref={searchRef} className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                    <input
+                      className={inputCls + " pl-9"}
+                      placeholder={clients.length === 0 ? "Aucun client — ajoutez-en un →" : "Rechercher un client par nom..."}
+                      value={clientSearch}
+                      disabled={clients.length === 0}
+                      onChange={(e) => {
+                        setClientSearch(e.target.value);
+                        setValue("clientId", "");
+                        setShowDropdown(true);
+                      }}
+                      onFocus={() => setShowDropdown(true)}
+                      autoComplete="off"
+                    />
+                  </div>
+                  {showDropdown && clients.length > 0 && (
+                    <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                      {filteredClients.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-slate-400">Aucun client trouvé</div>
+                      ) : (
+                        filteredClients.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onMouseDown={() => selectClient(c)}
+                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                          >
+                            <span className="font-medium">{c.name}</span>
+                            {c.email && (
+                              <span className="text-slate-400 text-xs ml-2">{c.email}</span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  <input type="hidden" {...register("clientId")} />
+                </div>
               )}
               {errors.clientId && (
                 <p className="text-xs text-red-500 mt-1">{errors.clientId.message}</p>

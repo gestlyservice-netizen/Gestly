@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import { Loader2, Printer } from "lucide-react";
 
 interface DevisLine {
@@ -36,8 +36,14 @@ const fmtDate = (d: string | null) =>
 
 export default function PrintDevisPage() {
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const autoPrint = searchParams.get("print") === "1";
+  const autoDownload = searchParams.get("download") === "1";
+
   const [devis, setDevis] = useState<Devis | null>(null);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const docRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch(`/api/devis/${id}`)
@@ -46,7 +52,47 @@ export default function PrintDevisPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) {
+  // Auto-déclencher l'impression si ?print=1
+  useEffect(() => {
+    if (!loading && devis && autoPrint) {
+      const timer = setTimeout(() => window.print(), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, devis, autoPrint]);
+
+  // Auto-télécharger via html2canvas si ?download=1
+  useEffect(() => {
+    if (!loading && devis && autoDownload && docRef.current) {
+      const el = docRef.current;
+      setDownloading(true);
+      // petit délai pour laisser le navigateur finir le rendu
+      const timer = setTimeout(async () => {
+        try {
+          const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+            import("html2canvas"),
+            import("jspdf"),
+          ]);
+
+          const canvas = await html2canvas(el, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: "#ffffff",
+          });
+
+          const imgData = canvas.toDataURL("image/jpeg", 0.95);
+          const pdf = new jsPDF({ unit: "px", format: [canvas.width / 2, canvas.height / 2] });
+          pdf.addImage(imgData, "JPEG", 0, 0, canvas.width / 2, canvas.height / 2);
+          pdf.save(`devis-${devis!.number}.pdf`);
+        } finally {
+          setDownloading(false);
+          window.close();
+        }
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, devis, autoDownload]);
+
+  if (loading || (autoDownload && !downloading && !devis)) {
     return (
       <div className="flex items-center justify-center h-screen">
         <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
@@ -55,7 +101,11 @@ export default function PrintDevisPage() {
   }
 
   if (!devis) {
-    return <div className="flex items-center justify-center h-screen text-slate-500">Devis introuvable.</div>;
+    return (
+      <div className="flex items-center justify-center h-screen text-slate-500">
+        Devis introuvable.
+      </div>
+    );
   }
 
   const expiryDate = new Date(devis.createdAt);
@@ -63,29 +113,39 @@ export default function PrintDevisPage() {
 
   return (
     <>
-      {/* Barre d'actions — masquée à l'impression */}
-      <div className="print:hidden fixed top-0 left-0 right-0 z-10 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
-        <button
-          onClick={() => window.close()}
-          className="text-sm text-slate-600 hover:text-slate-900"
-        >
-          ← Fermer
-        </button>
-        <button
-          onClick={() => window.print()}
-          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-        >
-          <Printer className="h-4 w-4" />
-          Télécharger / Imprimer PDF
-        </button>
-      </div>
+      {/* Barre d'actions — masquée à l'impression et en mode download */}
+      {!autoDownload && (
+        <div className="print:hidden fixed top-0 left-0 right-0 z-10 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+          <button
+            onClick={() => window.close()}
+            className="text-sm text-slate-600 hover:text-slate-900"
+          >
+            ← Fermer
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+          >
+            <Printer className="h-4 w-4" />
+            Télécharger / Imprimer PDF
+          </button>
+        </div>
+      )}
+
+      {/* Overlay de téléchargement */}
+      {downloading && (
+        <div className="fixed inset-0 z-50 bg-white/80 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <p className="text-sm text-slate-600">Génération du PDF…</p>
+        </div>
+      )}
 
       {/* Document */}
-      <div className="print:pt-0 pt-16 bg-slate-100 min-h-screen print:bg-white">
-        <div className="max-w-[794px] mx-auto bg-white print:shadow-none shadow-xl my-8 print:my-0 print:max-w-full">
+      <div className={`${autoDownload ? "" : "print:pt-0 pt-16"} bg-slate-100 min-h-screen print:bg-white`}>
+        <div ref={docRef} className="max-w-[794px] mx-auto bg-white print:shadow-none shadow-xl my-8 print:my-0 print:max-w-full">
           <div className="p-12 print:p-8">
 
-            {/* En-tête du document */}
+            {/* En-tête */}
             <div className="flex justify-between items-start mb-10">
               <div>
                 <div className="text-2xl font-bold text-blue-600 mb-1">Gestly</div>
@@ -141,7 +201,7 @@ export default function PrintDevisPage() {
             </table>
 
             {/* Totaux */}
-            <div className="flex justify-end mb-10">
+            <div className="flex justify-end mb-8">
               <div className="w-72">
                 <div className="flex justify-between py-2 text-sm text-slate-600 border-b border-slate-100">
                   <span>Total HT</span>
@@ -166,11 +226,21 @@ export default function PrintDevisPage() {
               </div>
             )}
 
-            {/* Pied de page */}
-            <div className="border-t border-slate-100 pt-6 text-xs text-slate-400 text-center">
-              <p>Devis valable {devis.validityDays} jours à compter du {fmtDate(devis.createdAt)}.</p>
-              <p className="mt-1">Pour accepter ce devis, veuillez nous contacter ou signer et retourner ce document.</p>
+            {/* Mentions légales */}
+            <div className="border-t border-slate-200 pt-5 mt-6">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
+                Mentions légales
+              </p>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Devis valable {devis.validityDays} jours à compter de sa date d&apos;émission.
+                En cas de retard de paiement, une pénalité égale à 3 fois le taux d&apos;intérêt
+                légal sera exigée conformément à l&apos;article L.441-6 du Code de commerce, ainsi
+                qu&apos;une indemnité forfaitaire de 40 euros pour frais de recouvrement
+                (art. D.441-5). Aucun escompte accordé en cas de paiement anticipé.
+                Pour accepter ce devis, veuillez nous contacter ou signer et retourner ce document.
+              </p>
             </div>
+
           </div>
         </div>
       </div>

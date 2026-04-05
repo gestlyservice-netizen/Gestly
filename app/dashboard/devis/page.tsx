@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, FileText, Loader2, Eye } from "lucide-react";
+import { Plus, FileText, Loader2, Eye, Download } from "lucide-react";
 
 interface Devis {
   id: string;
@@ -102,13 +102,22 @@ export default function DevisPage() {
                       {fmt(d.totalTTC)} €
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => router.push(`/dashboard/devis/${d.id}`)}
-                        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-300 px-2.5 py-1.5 rounded-lg transition-colors"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        Voir
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => router.push(`/dashboard/devis/${d.id}`)}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-300 px-2.5 py-1.5 rounded-lg transition-colors"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Voir
+                        </button>
+                        <button
+                          onClick={() => window.open(`/print/devis/${d.id}?download=1`, "_blank")}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 border border-slate-200 hover:border-slate-300 px-2.5 py-1.5 rounded-lg transition-colors"
+                          title="Télécharger le PDF"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

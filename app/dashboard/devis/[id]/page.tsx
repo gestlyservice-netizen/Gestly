@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   ChevronLeft, Send, CheckCircle, XCircle, Loader2,
-  FileText, Calendar, Clock, User, Eye,
+  FileText, Calendar, Clock, User, Eye, Download, Pencil,
 } from "lucide-react";
+
 
 interface DevisLine {
   id: string;
@@ -42,7 +43,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
 
 export default function DevisDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+
   const [devis, setDevis] = useState<Devis | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -151,6 +152,13 @@ export default function DevisDetailPage() {
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/dashboard/devis/${devis.id}/modifier`}
+            className="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+          >
+            <Pencil className="h-4 w-4" />
+            Modifier
+          </Link>
           <a
             href={`/print/devis/${devis.id}`}
             target="_blank"
@@ -160,6 +168,14 @@ export default function DevisDetailPage() {
             <Eye className="h-4 w-4" />
             Aperçu PDF
           </a>
+          <button
+            onClick={() => window.open(`/print/devis/${devis.id}?download=1`, "_blank")}
+            disabled={!!updating}
+            className="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors disabled:opacity-60"
+          >
+            <Download className="h-4 w-4" />
+            Télécharger PDF
+          </button>
           {devis.client.email && (
             <button
               onClick={sendByEmail}
