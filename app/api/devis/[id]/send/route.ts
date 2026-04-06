@@ -40,7 +40,7 @@ export async function POST(
 
   const linesRows = devis.lines
     .map(
-      (l) => `
+      (l: { description: string; quantity: number; unitPriceHT: number; tvaRate: number; totalHT: number }) => `
       <tr>
         <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#334155">${l.description}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;text-align:right">${l.quantity}</td>
