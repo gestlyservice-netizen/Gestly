@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+// Never statically generated — this route hits the DB and must run at runtime only.
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const checks: Record<string, string> = {};
 
