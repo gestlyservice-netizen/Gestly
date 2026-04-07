@@ -4,8 +4,6 @@ import type { DevisLine } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const fmt = (n: number) =>
   n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -16,6 +14,7 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
+  const resend = new Resend(process.env.RESEND_API_KEY);
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
