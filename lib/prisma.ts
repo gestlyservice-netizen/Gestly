@@ -10,11 +10,18 @@ function buildConnectionString(): string {
   if (!url) {
     throw new Error("[Prisma] DATABASE_URL environment variable is not set");
   }
-  // Supabase requires SSL from cloud environments (Vercel).
-  // Append sslmode=require if not already present in the URL.
-  if (process.env.NODE_ENV === "production" && !url.includes("sslmode")) {
-    const separator = url.includes("?") ? "&" : "?";
-    return `${url}${separator}sslmode=require`;
+  if (process.env.NODE_ENV === "production") {
+    const params: string[] = [];
+    if (!url.includes("sslmode")) params.push("sslmode=require");
+    // pgbouncer=true disables prepared statements, required for
+    // Supabase transaction pooler (port 6543) with Prisma.
+    if (!url.includes("pgbouncer") && url.includes("pooler.supabase.com")) {
+      params.push("pgbouncer=true");
+    }
+    if (params.length > 0) {
+      const separator = url.includes("?") ? "&" : "?";
+      return `${url}${separator}${params.join("&")}`;
+    }
   }
   return url;
 }
