@@ -1,50 +1,276 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, FileText, Loader2, Eye, Download } from "lucide-react";
+import {
+  Plus, FileText, Loader2, Eye, Pencil, Copy,
+  Download, Trash2, MoreVertical, Search,
+  Clock, CheckCircle2, TrendingUp, Banknote,
+} from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+/* ── Types ─────────────────────────────────────────────── */
+interface DevisLine {
+  description: string;
+  quantity: number;
+  unitPriceHT: number;
+  tvaRate: number;
+  totalHT: number;
+}
 
 interface Devis {
   id: string;
   number: string;
   status: string;
+  totalHT: number;
+  totalTVA: number;
   totalTTC: number;
   createdAt: string;
+  signedAt: string | null;
+  clientId: string;
+  validityDays: number;
+  notes: string | null;
   client: { name: string };
+  lines: DevisLine[];
 }
 
-const STATUS_LABELS: Record<string, { label: string; className: string }> = {
-  brouillon: { label: "Brouillon", className: "bg-slate-100 text-slate-600" },
-  envoye:    { label: "Envoyé",    className: "bg-blue-100 text-blue-700"   },
-  signe:     { label: "Signé",     className: "bg-green-100 text-green-700" },
-  refuse:    { label: "Refusé",    className: "bg-red-100 text-red-600"     },
+/* ── Statuts ────────────────────────────────────────────── */
+const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
+  brouillon: { label: "Brouillon", cls: "bg-slate-100 text-slate-600" },
+  envoye:    { label: "Envoyé",    cls: "bg-blue-100 text-blue-700" },
+  signe:     { label: "Signé",     cls: "bg-green-100 text-green-700" },
+  facture:   { label: "Facturé",   cls: "bg-orange-100 text-orange-700" },
+  paye:      { label: "Payé",      cls: "bg-emerald-100 text-emerald-700" },
 };
 
-export default function DevisPage() {
+/* ── Helpers ────────────────────────────────────────────── */
+const fmt = (n: number) =>
+  n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function isThisMonth(dateStr: string | null): boolean {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  const now = new Date();
+  return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+}
+
+/* ── Carte de stat ──────────────────────────────────────── */
+function StatCard({
+  label,
+  value,
+  icon,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ReactNode;
+  accent: string;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-start gap-3">
+      <div className={`p-2 rounded-lg ${accent} shrink-0`}>{icon}</div>
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide truncate">{label}</p>
+        <p className="text-xl font-bold text-slate-900 mt-0.5 truncate">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ── Menu actions ───────────────────────────────────────── */
+function ActionsMenu({
+  d,
+  onDelete,
+  onDuplicate,
+}: {
+  d: Devis;
+  onDelete: (d: Devis) => void;
+  onDuplicate: (d: Devis) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const [devis, setDevis] = useState<Devis[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/devis")
-      .then((r) => r.json())
-      .then(setDevis)
-      .finally(() => setLoading(false));
-  }, []);
+    if (!open) return;
+    function handleOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open]);
 
-  const fmt = (n: number) =>
-    n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function action(fn: () => void) {
+    return (e: React.MouseEvent) => {
+      e.stopPropagation();
+      fn();
+      setOpen(false);
+    };
+  }
 
   return (
+    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+        aria-label="Actions"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-50 mt-1 w-48 rounded-xl border border-slate-200 bg-white shadow-lg py-1.5">
+          <MenuItem
+            label="Voir"
+            icon={<Eye className="h-3.5 w-3.5" />}
+            onClick={action(() => router.push(`/dashboard/devis/${d.id}`))}
+          />
+          <MenuItem
+            label="Modifier"
+            icon={<Pencil className="h-3.5 w-3.5" />}
+            onClick={action(() => router.push(`/dashboard/devis/${d.id}/modifier`))}
+          />
+          <MenuItem
+            label="Dupliquer"
+            icon={<Copy className="h-3.5 w-3.5" />}
+            onClick={action(() => onDuplicate(d))}
+          />
+          <MenuItem
+            label="Télécharger PDF"
+            icon={<Download className="h-3.5 w-3.5" />}
+            onClick={action(() => window.open(`/print/devis/${d.id}?download=1`, "_blank"))}
+          />
+          <div className="my-1 mx-2 border-t border-slate-100" />
+          <MenuItem
+            label="Supprimer"
+            icon={<Trash2 className="h-3.5 w-3.5" />}
+            onClick={action(() => onDelete(d))}
+            danger
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({
+  label,
+  icon,
+  onClick,
+  danger = false,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  onClick: (e: React.MouseEvent) => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
+        danger
+          ? "text-red-600 hover:bg-red-50"
+          : "text-slate-700 hover:bg-slate-50"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+/* ── Page principale ────────────────────────────────────── */
+export default function DevisPage() {
+  const router = useRouter();
+  const [devis, setDevis]               = useState<Devis[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [search, setSearch]             = useState("");
+  const [toDelete, setToDelete]         = useState<Devis | null>(null);
+  const [deleting, setDeleting]         = useState(false);
+  const [duplicatingId, setDuplicating] = useState<string | null>(null);
+
+  const fetchDevis = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/devis");
+      if (res.ok) setDevis(await res.json());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchDevis(); }, [fetchDevis]);
+
+  /* Stats */
+  const enAttenteCount  = devis.filter((d) => d.status === "envoye").length;
+  const signesCount     = devis.filter((d) => d.status === "signe" && isThisMonth(d.signedAt)).length;
+  const montantEnCours  = devis.filter((d) => d.status === "envoye").reduce((s, d) => s + d.totalTTC, 0);
+  const montantSigne    = devis.filter((d) => d.status === "signe" && isThisMonth(d.signedAt)).reduce((s, d) => s + d.totalTTC, 0);
+
+  /* Filtrage */
+  const filtered = devis.filter((d) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return d.number.toLowerCase().includes(q) || d.client?.name.toLowerCase().includes(q);
+  });
+
+  /* Suppression */
+  const handleDelete = async () => {
+    if (!toDelete) return;
+    setDeleting(true);
+    try {
+      await fetch(`/api/devis/${toDelete.id}`, { method: "DELETE" });
+      setToDelete(null);
+      await fetchDevis();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  /* Duplication */
+  const handleDuplicate = async (d: Devis) => {
+    setDuplicating(d.id);
+    try {
+      await fetch("/api/devis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: d.clientId,
+          validityDays: d.validityDays,
+          notes: d.notes,
+          lines: d.lines.map((l) => ({
+            description: l.description,
+            quantity: l.quantity,
+            unitPriceHT: l.unitPriceHT,
+            tvaRate: l.tvaRate,
+          })),
+        }),
+      });
+      await fetchDevis();
+    } finally {
+      setDuplicating(null);
+    }
+  };
+
+  /* ── Render ─────────────────────────────────────────── */
+  return (
     <div className="space-y-6">
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Mes devis</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {devis.length} devis{devis.length !== 1 ? "" : ""}
-          </p>
+          <p className="text-sm text-slate-500 mt-1">{devis.length} devis au total</p>
         </div>
         <Link
           href="/dashboard/devis/nouveau"
@@ -55,69 +281,115 @@ export default function DevisPage() {
         </Link>
       </div>
 
-      {/* Contenu */}
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Devis en attente"
+          value={enAttenteCount}
+          icon={<Clock className="h-4 w-4 text-blue-600" />}
+          accent="bg-blue-50"
+        />
+        <StatCard
+          label="Signés ce mois"
+          value={signesCount}
+          icon={<CheckCircle2 className="h-4 w-4 text-green-600" />}
+          accent="bg-green-50"
+        />
+        <StatCard
+          label="Montant en cours"
+          value={`${fmt(montantEnCours)} €`}
+          icon={<TrendingUp className="h-4 w-4 text-orange-600" />}
+          accent="bg-orange-50"
+        />
+        <StatCard
+          label="Montant signé"
+          value={`${fmt(montantSigne)} €`}
+          icon={<Banknote className="h-4 w-4 text-emerald-600" />}
+          accent="bg-emerald-50"
+        />
+      </div>
+
+      {/* Recherche */}
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Rechercher par client ou numéro…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+        />
+      </div>
+
+      {/* Tableau */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
           </div>
-        ) : devis.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
               <FileText className="h-6 w-6 text-slate-400" />
             </div>
-            <p className="text-sm font-medium text-slate-600">Aucun devis pour l&apos;instant</p>
-            <p className="text-xs text-slate-400 mt-1">
-              Cliquez sur &ldquo;Nouveau devis&rdquo; pour commencer
+            <p className="text-sm font-medium text-slate-600">
+              {search ? "Aucun résultat pour cette recherche" : "Aucun devis pour l'instant"}
             </p>
+            {!search && (
+              <p className="text-xs text-slate-400 mt-1">
+                Cliquez sur «&nbsp;Nouveau devis&nbsp;» pour commencer
+              </p>
+            )}
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Numéro</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Date</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Statut</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Total TTC</th>
-                <th className="px-4 py-3" />
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Numéro</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Date</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Montant TTC</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Statut</th>
+                <th className="px-4 py-3 w-10" />
               </tr>
             </thead>
             <tbody>
-              {devis.map((d) => {
-                const status = STATUS_LABELS[d.status] ?? { label: d.status, className: "bg-slate-100 text-slate-600" };
+              {filtered.map((d) => {
+                const status = STATUS_CONFIG[d.status] ?? { label: d.status, cls: "bg-slate-100 text-slate-600" };
+                const isDuplicating = duplicatingId === d.id;
                 return (
-                  <tr key={d.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-mono font-semibold text-slate-800">{d.number}</td>
-                    <td className="px-4 py-3 text-slate-700">{d.client?.name}</td>
-                    <td className="px-4 py-3 text-slate-500">
+                  <tr
+                    key={d.id}
+                    onClick={() => router.push(`/dashboard/devis/${d.id}`)}
+                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-3.5 font-mono font-semibold text-slate-800 text-xs">
+                      {d.number}
+                    </td>
+                    <td className="px-4 py-3.5 font-medium text-slate-800">
+                      {d.client?.name ?? "—"}
+                    </td>
+                    <td className="px-4 py-3.5 text-slate-500">
                       {new Date(d.createdAt).toLocaleDateString("fr-FR")}
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-block text-xs font-medium px-2.5 py-1 rounded-full ${status.className}`}>
+                    <td className="px-4 py-3.5 text-right font-semibold text-slate-900 tabular-nums">
+                      {fmt(d.totalTTC)}&nbsp;€
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <span className={`inline-block text-xs font-medium px-2.5 py-1 rounded-full ${status.cls}`}>
                         {status.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-900">
-                      {fmt(d.totalTTC)} €
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => router.push(`/dashboard/devis/${d.id}`)}
-                          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-300 px-2.5 py-1.5 rounded-lg transition-colors"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          Voir
-                        </button>
-                        <button
-                          onClick={() => window.open(`/print/devis/${d.id}?download=1`, "_blank")}
-                          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 border border-slate-200 hover:border-slate-300 px-2.5 py-1.5 rounded-lg transition-colors"
-                          title="Télécharger le PDF"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                    <td className="px-3 py-3.5 text-right">
+                      {isDuplicating ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-slate-400 inline" />
+                      ) : (
+                        <ActionsMenu
+                          d={d}
+                          onDelete={setToDelete}
+                          onDuplicate={handleDuplicate}
+                        />
+                      )}
                     </td>
                   </tr>
                 );
@@ -126,6 +398,32 @@ export default function DevisPage() {
           </table>
         )}
       </div>
+
+      {/* Confirmation suppression */}
+      <AlertDialog open={!!toDelete} onOpenChange={(open) => { if (!open) setToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer le devis</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer le devis{" "}
+              <span className="font-semibold text-slate-900">{toDelete?.number}</span> ?
+              Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deleting && <Loader2 className="h-4 w-4 animate-spin mr-1.5" />}
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }
