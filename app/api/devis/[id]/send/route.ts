@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
+import type { DevisLine } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -40,8 +41,7 @@ export async function POST(
 
   const linesRows = devis.lines
     .map(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (l: any) => `
+      (l: DevisLine) => `
       <tr>
         <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#334155">${l.description}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;text-align:right">${l.quantity}</td>
