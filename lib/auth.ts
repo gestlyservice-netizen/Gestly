@@ -11,15 +11,17 @@ export async function getCurrentUser() {
     const clerkUser = await currentUser();
     if (!clerkUser) return null;
 
-    const email =
-      clerkUser.emailAddresses[0]?.emailAddress ?? "";
-    const companyName =
-      clerkUser.firstName
-        ? `${clerkUser.firstName} ${clerkUser.lastName ?? ""}`.trim()
-        : email;
+    const email = clerkUser.emailAddresses[0]?.emailAddress ?? "";
+    const companyName = clerkUser.firstName
+      ? `${clerkUser.firstName} ${clerkUser.lastName ?? ""}`.trim()
+      : email;
 
-    user = await prisma.user.create({
-      data: { clerkId, email, companyName },
+    // upsert évite la race condition si deux requêtes arrivent simultanément
+    // pour un nouvel utilisateur (findUnique → null → create en double → P2002)
+    user = await prisma.user.upsert({
+      where: { clerkId },
+      create: { clerkId, email, companyName },
+      update: {},
     });
   }
 

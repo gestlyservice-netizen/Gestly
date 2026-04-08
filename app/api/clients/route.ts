@@ -71,13 +71,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(client, { status: 201 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[POST /api/clients] DETAILS:", message);
-    if (err instanceof Error && err.stack) {
-      console.error("[POST /api/clients] STACK:", err.stack);
-    }
+    console.error("[POST /api/clients]", err);
     return NextResponse.json(
-      { error: "Erreur serveur lors de la création du client", detail: message },
+      { error: "Erreur serveur lors de la création du client" },
       { status: 500 }
     );
   }
