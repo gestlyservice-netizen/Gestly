@@ -38,7 +38,6 @@ export default async function DashboardPage() {
     enAttenteCount,
     signesCount,
     montantSigneAgg,
-    caFactureAgg,
     impayesAgg,
     devisRecents,
     facturesRecentes,
@@ -52,10 +51,6 @@ export default async function DashboardPage() {
     prisma.devis.aggregate({
       where: { userId: user.id, status: "signe", signedAt: { gte: startOfMonth } },
       _sum: { totalTTC: true },
-    }),
-    prisma.facture.aggregate({
-      where: { userId: user.id, createdAt: { gte: startOfMonth } },
-      _sum: { totalHT: true },
     }),
     prisma.facture.aggregate({
       where: { userId: user.id, paidAt: null },
