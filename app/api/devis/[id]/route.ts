@@ -33,7 +33,7 @@ export async function PATCH(
   if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
 
   const { status } = await request.json();
-  const validStatuses = ["brouillon", "envoye", "signe", "refuse"];
+  const validStatuses = ["brouillon", "envoye", "signe", "refuse", "facture", "paye"];
   if (!validStatuses.includes(status)) {
     return NextResponse.json({ error: "Statut invalide" }, { status: 400 });
   }
