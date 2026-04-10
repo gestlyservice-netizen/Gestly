@@ -7,7 +7,8 @@ async function getFactureForUser(id: string, userId: string) {
     where: { id, userId },
     include: {
       client: true,
-      devis: { include: { lines: true } },
+      lines:  true,
+      devis:  { include: { lines: true } },
     },
   });
 }
@@ -37,12 +38,11 @@ export async function PATCH(
 
   const body = await request.json();
 
-  // Marquer comme payée
   if (body.action === "mark_paid") {
     const updated = await prisma.facture.update({
       where: { id: params.id },
-      data: { status: "payee", paidAt: new Date() },
-      include: { client: true, devis: { include: { lines: true } } },
+      data:  { status: "payee", paidAt: new Date() },
+      include: { client: true, lines: true, devis: { include: { lines: true } } },
     });
     return NextResponse.json(updated);
   }

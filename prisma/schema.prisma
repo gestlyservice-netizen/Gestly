@@ -87,10 +87,25 @@ model Facture {
   totalTVA  Float
   totalTTC  Float
   status    String    @default("emise")
+  notes     String?
+  dueDate   DateTime?
   createdAt DateTime  @default(now())
   paidAt    DateTime?
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  client Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  devis  Devis?  @relation(fields: [devisId], references: [id], onDelete: SetNull)
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  devis  Devis?        @relation(fields: [devisId], references: [id], onDelete: SetNull)
+  lines  FactureLine[]
+}
+
+model FactureLine {
+  id          String  @id @default(cuid())
+  factureId   String
+  description String
+  quantity    Float
+  unitPriceHT Float
+  tvaRate     Float   @default(20)
+  totalHT     Float
+
+  facture Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
 }

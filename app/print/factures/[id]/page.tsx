@@ -4,26 +4,29 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Loader2, Printer } from "lucide-react";
 
-interface FactureLine {
-  id: string;
+interface Line {
+  id:          string;
   description: string;
-  quantity: number;
+  quantity:    number;
   unitPriceHT: number;
-  tvaRate: number;
-  totalHT: number;
+  tvaRate:     number;
+  totalHT:     number;
 }
 
 interface Facture {
-  id: string;
-  number: string;
-  status: string;
-  totalHT: number;
-  totalTVA: number;
-  totalTTC: number;
+  id:        string;
+  number:    string;
+  status:    string;
+  totalHT:   number;
+  totalTVA:  number;
+  totalTTC:  number;
+  notes:     string | null;
+  dueDate:   string | null;
   createdAt: string;
-  paidAt: string | null;
+  paidAt:    string | null;
   client: { name: string; email: string | null; phone: string | null; address: string | null };
-  devis: { lines: FactureLine[] } | null;
+  lines:  Line[];
+  devis:  { lines: Line[] } | null;
 }
 
 const fmt = (n: number) =>
@@ -33,12 +36,12 @@ const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("fr-FR") : "—";
 
 export default function PrintFacturePage() {
-  const { id } = useParams<{ id: string }>();
+  const { id }        = useParams<{ id: string }>();
   const searchParams  = useSearchParams();
   const autoDownload  = searchParams.get("download") === "1";
 
-  const [facture, setFacture]       = useState<Facture | null>(null);
-  const [loading, setLoading]       = useState(true);
+  const [facture, setFacture]         = useState<Facture | null>(null);
+  const [loading, setLoading]         = useState(true);
   const [downloading, setDownloading] = useState(false);
   const docRef = useRef<HTMLDivElement>(null);
 
@@ -49,7 +52,6 @@ export default function PrintFacturePage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Auto-télécharger via html2canvas si ?download=1
   useEffect(() => {
     if (!loading && facture && autoDownload && docRef.current) {
       const el = docRef.current;
@@ -90,12 +92,12 @@ export default function PrintFacturePage() {
     );
   }
 
-  const lines = facture.devis?.lines ?? [];
+  // Priorité : lignes propres, sinon lignes du devis lié
+  const lines  = facture.lines.length > 0 ? facture.lines : (facture.devis?.lines ?? []);
   const isPaid = facture.status === "payee";
 
   return (
     <>
-      {/* Barre d'actions — masquée en mode download */}
       {!autoDownload && (
         <div className="print:hidden fixed top-0 left-0 right-0 z-10 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
           <button onClick={() => window.close()} className="text-sm text-slate-600 hover:text-slate-900">
@@ -111,7 +113,6 @@ export default function PrintFacturePage() {
         </div>
       )}
 
-      {/* Overlay téléchargement */}
       {downloading && (
         <div className="fixed inset-0 z-50 bg-white/80 flex flex-col items-center justify-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -119,7 +120,6 @@ export default function PrintFacturePage() {
         </div>
       )}
 
-      {/* Document */}
       <div className={`${autoDownload ? "" : "print:pt-0 pt-16"} bg-slate-100 min-h-screen print:bg-white`}>
         <div ref={docRef} className="max-w-[794px] mx-auto bg-white print:shadow-none shadow-xl my-8 print:my-0 print:max-w-full">
           <div className="p-12 print:p-8">
@@ -134,6 +134,9 @@ export default function PrintFacturePage() {
                 <h1 className="text-3xl font-bold text-slate-900 tracking-tight">FACTURE</h1>
                 <p className="text-lg font-mono font-semibold text-blue-600 mt-1">{facture.number}</p>
                 <p className="text-sm text-slate-500 mt-1">Date : {fmtDate(facture.createdAt)}</p>
+                {facture.dueDate && (
+                  <p className="text-sm text-slate-500">Échéance : {fmtDate(facture.dueDate)}</p>
+                )}
                 {isPaid && facture.paidAt && (
                   <p className="text-sm font-semibold text-green-700 mt-1">
                     Facture acquittée le {fmtDate(facture.paidAt)}
@@ -159,7 +162,7 @@ export default function PrintFacturePage() {
               </div>
             </div>
 
-            {/* Tableau des lignes */}
+            {/* Tableau des prestations */}
             <table className="w-full mb-8 text-sm">
               <thead>
                 <tr className="bg-slate-900 text-white">
@@ -200,6 +203,14 @@ export default function PrintFacturePage() {
                 </div>
               </div>
             </div>
+
+            {/* Notes */}
+            {facture.notes && (
+              <div className="border-t border-slate-100 pt-6 mb-6">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Notes</p>
+                <p className="text-sm text-slate-600 whitespace-pre-wrap">{facture.notes}</p>
+              </div>
+            )}
 
             {/* Mentions légales */}
             <div className="border-t border-slate-200 pt-5 mt-6">
