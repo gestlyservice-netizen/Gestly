@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   ChevronLeft, Send, Loader2, FileText, Calendar,
   Clock, User, Eye, Download, Pencil, Copy,
-  ChevronDown, Check,
+  ChevronDown, Check, Receipt,
 } from "lucide-react";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -85,6 +85,7 @@ export default function DevisDetailPage() {
   const [updating, setUpdating]       = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [sending, setSending]         = useState(false);
+  const [converting, setConverting]   = useState(false);
   const [error, setError]             = useState<string | null>(null);
   const [success, setSuccess]         = useState<string | null>(null);
   const [statusOpen, setStatusOpen]   = useState(false);
@@ -152,6 +153,23 @@ export default function DevisDetailPage() {
     }
   };
 
+  /* Transformer en facture */
+  const convertToFacture = async () => {
+    setConverting(true);
+    try {
+      const res = await fetch(`/api/devis/${id}/to-facture`, { method: "POST" });
+      if (res.ok) {
+        const facture = await res.json();
+        router.push(`/dashboard/factures/${facture.id}`);
+      } else {
+        const j = await res.json().catch(() => ({}));
+        notify(j.error ?? "Erreur lors de la transformation", true);
+      }
+    } finally {
+      setConverting(false);
+    }
+  };
+
   /* Dupliquer */
   const duplicate = async () => {
     setDuplicating(true);
@@ -191,7 +209,7 @@ export default function DevisDetailPage() {
 
   const status = STATUS_CONFIG[devis.status] ?? { label: devis.status, cls: "bg-slate-100 text-slate-600" };
   const nextStatuses = NEXT_STATUSES[devis.status] ?? [];
-  const busy = updating || duplicating || sending;
+  const busy = updating || duplicating || sending || converting;
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">
@@ -273,6 +291,20 @@ export default function DevisDetailPage() {
               : <Copy className="h-4 w-4" />}
             Dupliquer
           </button>
+
+          {/* Transformer en facture */}
+          {devis.status === "signe" && (
+            <button
+              onClick={convertToFacture}
+              disabled={busy}
+              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+            >
+              {converting
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Receipt className="h-4 w-4" />}
+              Transformer en facture
+            </button>
+          )}
 
           {/* Changer le statut (dropdown) */}
           {nextStatuses.length > 0 && (
