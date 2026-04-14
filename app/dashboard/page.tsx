@@ -12,8 +12,6 @@ import { prisma } from "@/lib/prisma";
 const fmt = (n: number | null) =>
   (n ?? 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const fmtDate = (d: Date | string | null) =>
-  d ? new Date(d).toLocaleDateString("fr-FR") : "—";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   brouillon: { label: "Brouillon", cls: "bg-slate-100 text-slate-600" },
