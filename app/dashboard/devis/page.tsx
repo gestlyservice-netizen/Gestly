@@ -405,7 +405,7 @@ export default function DevisPage() {
   /* Stats */
   const enAttenteCount  = devis.filter((d) => d.status === "envoye").length;
   const signesCount     = devis.filter((d) => d.status === "signe" && isThisMonth(d.signedAt)).length;
-  const montantEnCours  = devis.filter((d) => d.status === "envoye").reduce((s, d) => s + d.totalTTC, 0);
+  const montantEnCours  = devis.filter((d) => d.status === "brouillon" || d.status === "envoye").reduce((s, d) => s + d.totalTTC, 0);
   const montantSigne    = devis.filter((d) => d.status === "signe" && isThisMonth(d.signedAt)).reduce((s, d) => s + d.totalTTC, 0);
 
   /* Filtrage (liste uniquement) */
