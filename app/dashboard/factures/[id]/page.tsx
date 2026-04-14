@@ -64,16 +64,25 @@ function getDisplayStatus(f: Facture): { label: string; cls: string } {
 export default function FactureDetailPage() {
   const { id } = useParams<{ id: string }>();
 
-  const [facture, setFacture] = useState<Facture | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [paying, setPaying]   = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [facture, setFacture]   = useState<Facture | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [paying, setPaying]     = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [success, setSuccess]   = useState<string | null>(null);
 
   useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    setError(null);
     fetch(`/api/factures/${id}`)
-      .then((r) => r.json())
-      .then(setFacture)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) {
+          setError((data as { error?: string }).error ?? `Erreur ${r.status}`);
+        } else {
+          setFacture(data as Facture);
+        }
+      })
       .catch(() => setError("Impossible de charger la facture"))
       .finally(() => setLoading(false));
   }, [id]);
@@ -88,23 +97,26 @@ export default function FactureDetailPage() {
     if (!facture || facture.status === "payee") return;
     setPaying(true);
     try {
-      const res = await fetch(`/api/factures/${id}`, {
+      const r = await fetch(`/api/factures/${id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ action: "mark_paid" }),
       });
-      if (res.ok) {
-        setFacture(await res.json());
+      const data = await r.json();
+      if (r.ok) {
+        setFacture(data as Facture);
         notify("Facture marquée comme payée");
       } else {
-        const j = await res.json().catch(() => ({})) as { error?: string };
-        notify(j.error ?? "Erreur lors de la mise à jour", true);
+        notify((data as { error?: string }).error ?? "Erreur lors de la mise à jour", true);
       }
+    } catch {
+      notify("Erreur réseau", true);
     } finally {
       setPaying(false);
     }
   };
 
+  /* ── États de chargement ───────────────────────────────── */
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -113,11 +125,41 @@ export default function FactureDetailPage() {
     );
   }
 
+  if (error && !facture) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center gap-3 mb-6">
+          <Link
+            href="/dashboard/factures"
+            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Link>
+          <h1 className="text-2xl font-bold text-slate-900">Détail de la facture</h1>
+        </div>
+        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+          {error}
+        </div>
+        <div className="mt-4">
+          <Link
+            href="/dashboard/factures"
+            className="text-sm text-blue-600 hover:underline"
+          >
+            ← Retour à la liste des factures
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (!facture) {
     return (
       <div className="text-center py-20">
         <p className="text-slate-500">Facture introuvable.</p>
-        <Link href="/dashboard/factures" className="text-blue-600 hover:underline text-sm mt-2 inline-block">
+        <Link
+          href="/dashboard/factures"
+          className="text-blue-600 hover:underline text-sm mt-2 inline-block"
+        >
           Retour à la liste
         </Link>
       </div>
@@ -125,8 +167,10 @@ export default function FactureDetailPage() {
   }
 
   const status = getDisplayStatus(facture);
-  // Priorité : lignes propres de la facture, sinon lignes du devis lié
-  const lines  = facture.lines.length > 0 ? facture.lines : (facture.devis?.lines ?? []);
+  /* Priorité : lignes propres de la facture, sinon lignes du devis lié */
+  const lines = (facture.lines ?? []).length > 0
+    ? facture.lines
+    : (facture.devis?.lines ?? []);
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">
@@ -177,7 +221,9 @@ export default function FactureDetailPage() {
               disabled={paying}
               className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
             >
-              {paying ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+              {paying
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <CheckCircle className="h-4 w-4" />}
               Marquer comme payée
             </button>
           )}
@@ -186,10 +232,14 @@ export default function FactureDetailPage() {
 
       {/* Notifications */}
       {error && (
-        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">{error}</div>
+        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+          {error}
+        </div>
       )}
       {success && (
-        <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-4 py-3">✓ {success}</div>
+        <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+          ✓ {success}
+        </div>
       )}
 
       {/* Facture acquittée */}
