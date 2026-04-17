@@ -28,6 +28,7 @@ model User {
   clients  Client[]
   devis    Devis[]
   factures Facture[]
+  settings Settings?
 }
 
 model Client {
@@ -108,4 +109,42 @@ model FactureLine {
   totalHT     Float
 
   facture Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
+}
+
+model Settings {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+
+  // Section 1 — Informations entreprise
+  companyName           String   @default("")
+  formeJuridique        String?
+  siret                 String?
+  tvaIntracom           String?
+  adresseRue            String?
+  codePostal            String?
+  ville                 String?
+  telephone             String?
+  emailPro              String?
+  siteWeb               String?
+
+  // Section 2 — Apparence
+  logoUrl               String?
+  couleurPrincipale     String   @default("#2563EB")
+  piedDePage            String?
+
+  // Section 3 — Numérotation
+  prefixeDevis          String   @default("DEV-")
+  prefixeFacture        String   @default("FAC-")
+  prochainNumeroDevis   Int      @default(1)
+  prochainNumeroFacture Int      @default(1)
+
+  // Section 4 — Mentions légales
+  conditionsPaiement    String?
+  penalitesRetard       String?
+  reservePropriete      Boolean  @default(false)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
