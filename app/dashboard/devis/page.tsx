@@ -7,7 +7,7 @@ import {
   Plus, FileText, Loader2, Eye, Pencil, Copy,
   Download, Trash2, MoreVertical, Search,
   Clock, CheckCircle2, TrendingUp, Banknote,
-  List, Columns, ChevronDown,
+  List, Columns, ChevronDown, AlertTriangle,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -389,12 +389,20 @@ export default function DevisPage() {
   const [toDelete, setToDelete]         = useState<Devis | null>(null);
   const [deleting, setDeleting]         = useState(false);
   const [duplicatingId, setDuplicating] = useState<string | null>(null);
+  const [settingsEmpty, setSettingsEmpty] = useState(false);
 
   const fetchDevis = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/devis");
-      if (res.ok) setDevis(await res.json());
+      const [devisRes, settingsRes] = await Promise.all([
+        fetch("/api/devis"),
+        fetch("/api/settings"),
+      ]);
+      if (devisRes.ok) setDevis(await devisRes.json());
+      if (settingsRes.ok) {
+        const s = await settingsRes.json() as { companyName?: string };
+        setSettingsEmpty(!s.companyName || s.companyName.trim() === "");
+      }
     } finally {
       setLoading(false);
     }
@@ -468,6 +476,20 @@ export default function DevisPage() {
   /* ── Render ─────────────────────────────────────────── */
   return (
     <div className="space-y-6">
+
+      {/* Bandeau paramètres incomplets */}
+      {settingsEmpty && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+          <span>
+            <strong>⚠️ Complétez vos informations dans les{" "}</strong>
+            <a href="/dashboard/parametres" className="underline font-semibold hover:text-amber-900">
+              Paramètres
+            </a>
+            {" "}pour personnaliser vos documents.
+          </span>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between">

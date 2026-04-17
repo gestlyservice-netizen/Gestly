@@ -9,7 +9,7 @@ import {
   Upload, Loader2, CheckCircle, AlertCircle,
   Save, X,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
 /* ── Zod schema ─────────────────────────────────────────── */
+// z.coerce.number() infers as `unknown` in Zod v4 — on utilise z.number() et
+// valueAsNumber sur les inputs, les .default() sont remplacés par les defaultValues RHF.
 const schema = z.object({
   companyName:           z.string().min(1, "Le nom de l'entreprise est requis"),
   formeJuridique:        z.string().optional(),
@@ -44,15 +46,15 @@ const schema = z.object({
     z.string().url("URL invalide (ex: https://monsite.fr)"),
     z.literal(""),
   ]).optional(),
-  couleurPrincipale:     z.string().default("#2563EB"),
+  couleurPrincipale:     z.string(),
   piedDePage:            z.string().optional(),
   prefixeDevis:          z.string().min(1, "Requis"),
   prefixeFacture:        z.string().min(1, "Requis"),
-  prochainNumeroDevis:   z.coerce.number().int().min(1, "Minimum 1"),
-  prochainNumeroFacture: z.coerce.number().int().min(1, "Minimum 1"),
+  prochainNumeroDevis:   z.number().int().min(1, "Minimum 1"),
+  prochainNumeroFacture: z.number().int().min(1, "Minimum 1"),
   conditionsPaiement:    z.string().optional(),
   penalitesRetard:       z.string().optional(),
-  reservePropriete:      z.boolean().default(false),
+  reservePropriete:      z.boolean(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -459,7 +461,7 @@ export default function ParametresPage() {
 
               <Field label="Prochain n° devis" error={errors.prochainNumeroDevis?.message}>
                 <Input
-                  {...register("prochainNumeroDevis")}
+                  {...register("prochainNumeroDevis", { valueAsNumber: true })}
                   type="number"
                   min={1}
                   placeholder="1"
@@ -472,7 +474,7 @@ export default function ParametresPage() {
 
               <Field label="Prochain n° facture" error={errors.prochainNumeroFacture?.message}>
                 <Input
-                  {...register("prochainNumeroFacture")}
+                  {...register("prochainNumeroFacture", { valueAsNumber: true })}
                   type="number"
                   min={1}
                   placeholder="1"

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Loader2, Printer } from "lucide-react";
 
+/* ── Types ─────────────────────────────────────────────── */
 interface Line {
   id:          string;
   description: string;
@@ -29,26 +30,50 @@ interface Facture {
   devis:  { lines: Line[] } | null;
 }
 
+interface Settings {
+  companyName:       string;
+  formeJuridique:    string | null;
+  siret:             string | null;
+  tvaIntracom:       string | null;
+  adresseRue:        string | null;
+  codePostal:        string | null;
+  ville:             string | null;
+  telephone:         string | null;
+  emailPro:          string | null;
+  logoUrl:           string | null;
+  couleurPrincipale: string;
+  piedDePage:        string | null;
+  penalitesRetard:   string | null;
+}
+
+/* ── Helpers ─────────────────────────────────────────────── */
 const fmt = (n: number) =>
   n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("fr-FR") : "—";
 
+/* ── Page ───────────────────────────────────────────────── */
 export default function PrintFacturePage() {
   const { id }        = useParams<{ id: string }>();
   const searchParams  = useSearchParams();
   const autoDownload  = searchParams.get("download") === "1";
 
-  const [facture, setFacture]         = useState<Facture | null>(null);
-  const [loading, setLoading]         = useState(true);
+  const [facture,     setFacture]     = useState<Facture | null>(null);
+  const [settings,    setSettings]    = useState<Settings | null>(null);
+  const [loading,     setLoading]     = useState(true);
   const [downloading, setDownloading] = useState(false);
   const docRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch(`/api/factures/${id}`)
-      .then((r) => r.json())
-      .then(setFacture)
+    Promise.all([
+      fetch(`/api/factures/${id}`).then((r) => r.json()),
+      fetch("/api/settings").then((r) => r.json()),
+    ])
+      .then(([factureData, settingsData]) => {
+        setFacture(factureData as Facture);
+        setSettings(settingsData as Settings);
+      })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -92,9 +117,12 @@ export default function PrintFacturePage() {
     );
   }
 
-  // Priorité : lignes propres, sinon lignes du devis lié
-  const lines  = facture.lines.length > 0 ? facture.lines : (facture.devis?.lines ?? []);
-  const isPaid = facture.status === "payee";
+  const couleur    = settings?.couleurPrincipale ?? "#2563EB";
+  const lines      = (facture.lines ?? []).length > 0 ? facture.lines : (facture.devis?.lines ?? []);
+  const isPaid     = facture.status === "payee";
+  const adresseLigne2 = [settings?.codePostal, settings?.ville].filter(Boolean).join(" ");
+  const penalites  = settings?.penalitesRetard
+    ?? "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera exigée conformément à l'article L.441-6 du Code de commerce, ainsi qu'une indemnité forfaitaire de 40 euros pour frais de recouvrement (art. D.441-5).";
 
   return (
     <>
@@ -124,28 +152,66 @@ export default function PrintFacturePage() {
         <div ref={docRef} className="max-w-[794px] mx-auto bg-white print:shadow-none shadow-xl my-8 print:my-0 print:max-w-full">
           <div className="p-12 print:p-8">
 
-            {/* En-tête */}
+            {/* ── En-tête ──────────────────────────────────── */}
             <div className="flex justify-between items-start mb-10">
-              <div>
-                <div className="text-2xl font-bold text-blue-600 mb-1">Gestly</div>
-                <div className="text-xs text-slate-400">Votre entreprise</div>
+
+              {/* Gauche : entreprise */}
+              <div className="flex items-start gap-3 max-w-[280px]">
+                {settings?.logoUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={settings.logoUrl}
+                    alt="Logo"
+                    className="h-14 w-auto object-contain shrink-0"
+                  />
+                )}
+                <div>
+                  <div className="text-xl font-bold leading-tight" style={{ color: couleur }}>
+                    {settings?.companyName || "Mon Entreprise"}
+                  </div>
+                  {settings?.formeJuridique && (
+                    <div className="text-xs text-slate-500 mt-0.5">{settings.formeJuridique}</div>
+                  )}
+                  {settings?.adresseRue && (
+                    <div className="text-xs text-slate-500 mt-1">{settings.adresseRue}</div>
+                  )}
+                  {adresseLigne2 && (
+                    <div className="text-xs text-slate-500">{adresseLigne2}</div>
+                  )}
+                  {settings?.telephone && (
+                    <div className="text-xs text-slate-500 mt-1">{settings.telephone}</div>
+                  )}
+                  {settings?.emailPro && (
+                    <div className="text-xs text-slate-500">{settings.emailPro}</div>
+                  )}
+                  {settings?.siret && (
+                    <div className="text-xs text-slate-400 mt-1">SIRET : {settings.siret}</div>
+                  )}
+                  {settings?.tvaIntracom && (
+                    <div className="text-xs text-slate-400">TVA : {settings.tvaIntracom}</div>
+                  )}
+                </div>
               </div>
+
+              {/* Droite : titre document */}
               <div className="text-right">
                 <h1 className="text-3xl font-bold text-slate-900 tracking-tight">FACTURE</h1>
-                <p className="text-lg font-mono font-semibold text-blue-600 mt-1">{facture.number}</p>
+                <p className="text-lg font-mono font-semibold mt-1" style={{ color: couleur }}>
+                  {facture.number}
+                </p>
                 <p className="text-sm text-slate-500 mt-1">Date : {fmtDate(facture.createdAt)}</p>
                 {facture.dueDate && (
                   <p className="text-sm text-slate-500">Échéance : {fmtDate(facture.dueDate)}</p>
                 )}
                 {isPaid && facture.paidAt && (
                   <p className="text-sm font-semibold text-green-700 mt-1">
-                    Facture acquittée le {fmtDate(facture.paidAt)}
+                    Acquittée le {fmtDate(facture.paidAt)}
                   </p>
                 )}
               </div>
             </div>
 
-            {/* Client */}
+            {/* ── Client ───────────────────────────────────── */}
             <div className="flex justify-end mb-10">
               <div className="bg-slate-50 rounded-xl px-6 py-4 min-w-[240px]">
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Destinataire</p>
@@ -162,10 +228,10 @@ export default function PrintFacturePage() {
               </div>
             </div>
 
-            {/* Tableau des prestations */}
+            {/* ── Tableau des lignes ───────────────────────── */}
             <table className="w-full mb-8 text-sm">
               <thead>
-                <tr className="bg-slate-900 text-white">
+                <tr style={{ backgroundColor: couleur }} className="text-white">
                   <th className="text-left px-4 py-3 rounded-tl-lg font-semibold">Description</th>
                   <th className="text-right px-4 py-3 font-semibold">Qté</th>
                   <th className="text-right px-4 py-3 font-semibold">Prix HT</th>
@@ -186,7 +252,7 @@ export default function PrintFacturePage() {
               </tbody>
             </table>
 
-            {/* Totaux */}
+            {/* ── Totaux ───────────────────────────────────── */}
             <div className="flex justify-end mb-8">
               <div className="w-72">
                 <div className="flex justify-between py-2 text-sm text-slate-600 border-b border-slate-100">
@@ -197,14 +263,17 @@ export default function PrintFacturePage() {
                   <span>Total TVA</span>
                   <span className="font-medium text-slate-800">{fmt(facture.totalTVA)} €</span>
                 </div>
-                <div className="flex justify-between py-3 bg-blue-600 text-white rounded-lg px-4 mt-2">
+                <div
+                  className="flex justify-between py-3 text-white rounded-lg px-4 mt-2"
+                  style={{ backgroundColor: couleur }}
+                >
                   <span className="font-bold text-base">Total TTC</span>
                   <span className="font-bold text-xl">{fmt(facture.totalTTC)} €</span>
                 </div>
               </div>
             </div>
 
-            {/* Notes */}
+            {/* ── Notes ────────────────────────────────────── */}
             {facture.notes && (
               <div className="border-t border-slate-100 pt-6 mb-6">
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Notes</p>
@@ -212,17 +281,19 @@ export default function PrintFacturePage() {
               </div>
             )}
 
-            {/* Mentions légales */}
-            <div className="border-t border-slate-200 pt-5 mt-6">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
-                Mentions légales
-              </p>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Règlement à réception de facture. En cas de retard de paiement, une pénalité égale à
-                3 fois le taux d&apos;intérêt légal sera exigée conformément à l&apos;article L.441-6
-                du Code de commerce, ainsi qu&apos;une indemnité forfaitaire de 40 euros pour frais de
-                recouvrement (art. D.441-5).
-              </p>
+            {/* ── Pied de page + mentions légales ─────────── */}
+            <div className="border-t border-slate-200 pt-5 mt-6 space-y-3">
+              {settings?.piedDePage && (
+                <p className="text-xs text-slate-500 text-center">{settings.piedDePage}</p>
+              )}
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
+                  Mentions légales
+                </p>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Règlement à réception de facture. {penalites}
+                </p>
+              </div>
             </div>
 
           </div>
