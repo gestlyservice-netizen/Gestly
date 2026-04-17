@@ -164,13 +164,13 @@ export default function PrintDevisPage() {
             <div className="flex justify-between items-start mb-10">
 
               {/* Gauche : entreprise */}
-              <div className="flex items-start gap-3 max-w-[280px]">
+              <div className="flex flex-col max-w-[280px]">
                 {settings?.logoUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={settings.logoUrl}
                     alt="Logo"
-                    className="h-14 w-auto object-contain shrink-0"
+                    className="h-14 w-auto object-contain mb-3 self-start"
                   />
                 )}
                 <div>
