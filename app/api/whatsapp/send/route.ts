@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 interface SendBody {
   to: string;
   message: string;
+  // Template fields (optional — used when free-form is not available)
+  templateName?: string;
+  templateLanguage?: string;
+  templateParams?: string[];
 }
 
 interface MetaSuccessResponse {
@@ -10,13 +14,13 @@ interface MetaSuccessResponse {
 }
 
 interface MetaErrorResponse {
-  error: { message: string; code: number };
+  error: { message: string; code: number; error_subcode?: number };
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const token           = process.env.WHATSAPP_TOKEN;
-    const phoneNumberId   = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token         = process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!token || !phoneNumberId) {
       return NextResponse.json(
@@ -26,14 +30,43 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json() as Partial<SendBody>;
-    const { to, message } = body;
+    const { to, message, templateName, templateLanguage, templateParams } = body;
 
-    if (!to || !message) {
+    if (!to) {
       return NextResponse.json(
-        { success: false, error: "Les champs `to` et `message` sont requis" },
+        { success: false, error: "Le champ `to` est requis" },
         { status: 400 }
       );
     }
+
+    // Build payload — template mode or free-form text
+    const useTemplate = !!templateName;
+    const payload = useTemplate
+      ? {
+          messaging_product: "whatsapp",
+          to,
+          type: "template",
+          template: {
+            name: templateName,
+            language: { code: templateLanguage ?? "fr" },
+            ...(templateParams && templateParams.length > 0
+              ? {
+                  components: [
+                    {
+                      type: "body",
+                      parameters: templateParams.map((text) => ({ type: "text", text })),
+                    },
+                  ],
+                }
+              : {}),
+          },
+        }
+      : {
+          messaging_product: "whatsapp",
+          to,
+          type: "text",
+          text: { body: message ?? "" },
+        };
 
     const metaRes = await fetch(
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
@@ -43,12 +76,7 @@ export async function POST(request: NextRequest) {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          type: "text",
-          text: { body: message },
-        }),
+        body: JSON.stringify(payload),
       }
     );
 

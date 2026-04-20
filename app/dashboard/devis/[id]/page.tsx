@@ -148,12 +148,20 @@ export default function DevisDetailPage() {
           notify("Ce client n'a pas de numéro de téléphone pour WhatsApp.", true);
           return;
         }
-        const message =
-          `Bonjour ${devis.client.name}, votre devis ${devis.number} d'un montant de ${devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € est prêt. N'hésitez pas à nous contacter pour toute question.`;
+        const rawPhone = devis.client.phone!.replace(/\s/g, "");
+        const normalizedPhone = rawPhone.startsWith("0")
+          ? "+33" + rawPhone.slice(1)
+          : rawPhone;
+        const amount = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2 });
         const res = await fetch("/api/whatsapp/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: devis.client.phone, message }),
+          body: JSON.stringify({
+            to: normalizedPhone,
+            templateName: "devis_notification",
+            templateLanguage: "fr",
+            templateParams: [devis.client.name, devis.number, amount],
+          }),
         });
         if (res.ok) {
           notify(`Devis envoyé par WhatsApp à ${devis.client.phone}`);
