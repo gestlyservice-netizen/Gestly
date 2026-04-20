@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Users, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, Loader2, MessageCircle, Mail, Phone } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,43 +23,78 @@ import {
 const inputCls =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition";
 
+type ContactChannel = "whatsapp" | "email" | "telephone";
+
+const CHANNELS: { value: ContactChannel; label: string; icon: React.ReactNode; activeClass: string }[] = [
+  {
+    value: "whatsapp",
+    label: "WhatsApp",
+    icon: <MessageCircle className="h-3.5 w-3.5" />,
+    activeClass: "bg-green-600 text-white border-green-600",
+  },
+  {
+    value: "email",
+    label: "Email",
+    icon: <Mail className="h-3.5 w-3.5" />,
+    activeClass: "bg-blue-600 text-white border-blue-600",
+  },
+  {
+    value: "telephone",
+    label: "Téléphone",
+    icon: <Phone className="h-3.5 w-3.5" />,
+    activeClass: "bg-slate-700 text-white border-slate-700",
+  },
+];
+
+const CHANNEL_BADGE: Record<ContactChannel, { label: string; cls: string; icon: React.ReactNode }> = {
+  whatsapp:   { label: "WhatsApp",   cls: "bg-green-50 text-green-700 border border-green-200",   icon: <MessageCircle className="h-3 w-3" /> },
+  email:      { label: "Email",      cls: "bg-blue-50 text-blue-700 border border-blue-200",       icon: <Mail className="h-3 w-3" /> },
+  telephone:  { label: "Téléphone",  cls: "bg-slate-50 text-slate-600 border border-slate-200",   icon: <Phone className="h-3 w-3" /> },
+};
+
 /* ── Schema de validation ─────────────────────────────── */
 const clientSchema = z.object({
-  name: z.string().min(1, "Le nom est obligatoire"),
-  email: z.string().email("Email invalide").optional().or(z.literal("")),
-  phone: z.string().optional(),
-  address: z.string().optional(),
+  name:             z.string().min(1, "Le nom est obligatoire"),
+  email:            z.string().email("Email invalide").optional().or(z.literal("")),
+  phone:            z.string().optional(),
+  address:          z.string().optional(),
+  preferredContact: z.enum(["whatsapp", "email", "telephone"]),
 });
 type ClientForm = z.infer<typeof clientSchema>;
 
 /* ── Type client ─────────────────────────────────────── */
 interface Client {
-  id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  address: string | null;
-  createdAt: string;
+  id:               string;
+  name:             string;
+  email:            string | null;
+  phone:            string | null;
+  address:          string | null;
+  preferredContact: string;
+  createdAt:        string;
 }
 
 /* ── Composant principal ─────────────────────────────── */
 export default function ClientsPage() {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [clients, setClients]               = useState<Client[]>([]);
+  const [loading, setLoading]               = useState(true);
+  const [modalOpen, setModalOpen]           = useState(false);
+  const [editingClient, setEditingClient]   = useState<Client | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [apiError, setApiError] = useState<string | null>(null);
+  const [submitting, setSubmitting]         = useState(false);
+  const [deleting, setDeleting]             = useState(false);
+  const [apiError, setApiError]             = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors },
-  } = useForm<ClientForm>({ resolver: zodResolver(clientSchema) });
+  } = useForm<ClientForm>({ resolver: zodResolver(clientSchema), defaultValues: { preferredContact: "email" } });
+
+  const selectedChannel = watch("preferredContact");
 
   /* Charger les clients */
   const fetchClients = async () => {
@@ -78,7 +113,7 @@ export default function ClientsPage() {
   const openAdd = () => {
     setEditingClient(null);
     setApiError(null);
-    reset({ name: "", email: "", phone: "", address: "" });
+    reset({ name: "", email: "", phone: "", address: "", preferredContact: "email" });
     setModalOpen(true);
   };
 
@@ -87,10 +122,11 @@ export default function ClientsPage() {
     setApiError(null);
     setEditingClient(client);
     reset({
-      name: client.name,
-      email: client.email ?? "",
-      phone: client.phone ?? "",
-      address: client.address ?? "",
+      name:             client.name,
+      email:            client.email ?? "",
+      phone:            client.phone ?? "",
+      address:          client.address ?? "",
+      preferredContact: (client.preferredContact as ContactChannel) ?? "email",
     });
     setModalOpen(true);
   };
@@ -100,9 +136,7 @@ export default function ClientsPage() {
     setSubmitting(true);
     setApiError(null);
     try {
-      const url = editingClient
-        ? `/api/clients/${editingClient.id}`
-        : "/api/clients";
+      const url    = editingClient ? `/api/clients/${editingClient.id}` : "/api/clients";
       const method = editingClient ? "PUT" : "POST";
       const res = await fetch(url, {
         method,
@@ -134,9 +168,7 @@ export default function ClientsPage() {
     if (!deletingClient) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/clients/${deletingClient.id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(`/api/clients/${deletingClient.id}`, { method: "DELETE" });
       if (res.ok) {
         setDeleteDialogOpen(false);
         await fetchClients();
@@ -187,6 +219,7 @@ export default function ClientsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Nom</TableHead>
+                <TableHead>Canal préféré</TableHead>
                 <TableHead>Téléphone</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Adresse</TableHead>
@@ -194,40 +227,49 @@ export default function ClientsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {clients.map((client) => (
-                <TableRow key={client.id}>
-                  <TableCell className="font-medium text-slate-900">
-                    {client.name}
-                  </TableCell>
-                  <TableCell className="text-slate-600">
-                    {client.phone ?? <span className="text-slate-300">—</span>}
-                  </TableCell>
-                  <TableCell className="text-slate-600">
-                    {client.email ?? <span className="text-slate-300">—</span>}
-                  </TableCell>
-                  <TableCell className="text-slate-600 max-w-[200px] truncate">
-                    {client.address ?? <span className="text-slate-300">—</span>}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => openEdit(client)}
-                        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-blue-600 border border-slate-200 hover:border-blue-300 px-2.5 py-1.5 rounded-lg transition-colors"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        Modifier
-                      </button>
-                      <button
-                        onClick={() => openDelete(client)}
-                        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-red-600 border border-slate-200 hover:border-red-300 px-2.5 py-1.5 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Supprimer
-                      </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {clients.map((client) => {
+                const channel = CHANNEL_BADGE[(client.preferredContact as ContactChannel) ?? "email"] ?? CHANNEL_BADGE.email;
+                return (
+                  <TableRow key={client.id}>
+                    <TableCell className="font-medium text-slate-900">
+                      {client.name}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${channel.cls}`}>
+                        {channel.icon}
+                        {channel.label}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-slate-600">
+                      {client.phone ?? <span className="text-slate-300">—</span>}
+                    </TableCell>
+                    <TableCell className="text-slate-600">
+                      {client.email ?? <span className="text-slate-300">—</span>}
+                    </TableCell>
+                    <TableCell className="text-slate-600 max-w-[200px] truncate">
+                      {client.address ?? <span className="text-slate-300">—</span>}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => openEdit(client)}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-blue-600 border border-slate-200 hover:border-blue-300 px-2.5 py-1.5 rounded-lg transition-colors"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Modifier
+                        </button>
+                        <button
+                          onClick={() => openDelete(client)}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-red-600 border border-slate-200 hover:border-red-300 px-2.5 py-1.5 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Supprimer
+                        </button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
@@ -259,15 +301,42 @@ export default function ClientsPage() {
               )}
             </div>
 
+            {/* Canal de contact préféré */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-slate-700">
+                Canal de contact préféré
+              </label>
+              <div className="flex gap-2">
+                {CHANNELS.map((ch) => (
+                  <button
+                    key={ch.value}
+                    type="button"
+                    onClick={() => setValue("preferredContact", ch.value)}
+                    className={`flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+                      selectedChannel === ch.value
+                        ? ch.activeClass
+                        : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    {ch.icon}
+                    {ch.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Téléphone */}
             <div className="space-y-1.5">
               <label htmlFor="phone" className="text-sm font-medium text-slate-700">
                 Téléphone
+                {selectedChannel === "whatsapp" && (
+                  <span className="ml-1.5 text-xs text-green-600 font-normal">(requis pour WhatsApp)</span>
+                )}
               </label>
               <input
                 id="phone"
                 className={inputCls}
-                placeholder="Ex : 06 12 34 56 78"
+                placeholder="Ex : +33612345678"
                 {...register("phone")}
               />
             </div>

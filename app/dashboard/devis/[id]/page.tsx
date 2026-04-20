@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   ChevronLeft, Send, Loader2, FileText, Calendar,
   Clock, User, Eye, Download, Pencil, Copy,
-  ChevronDown, Check, Receipt,
+  ChevronDown, Check, Receipt, MessageCircle, Phone,
 } from "lucide-react";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -38,6 +38,7 @@ interface Devis {
     email: string | null;
     phone: string | null;
     address: string | null;
+    preferredContact: string;
   };
   lines: DevisLine[];
 }
@@ -136,17 +137,39 @@ export default function DevisDetailPage() {
     }
   };
 
-  /* Envoyer par email */
-  const sendByEmail = async () => {
+  /* Envoyer selon le canal préféré du client */
+  const sendToClient = async () => {
+    if (!devis) return;
+    const channel = devis.client.preferredContact ?? "email";
     setSending(true);
     try {
-      const res = await fetch(`/api/devis/${id}/send`, { method: "POST" });
-      if (res.ok) {
-        setDevis(await res.json());
-        notify(`Devis envoyé à ${devis?.client.email}`);
+      if (channel === "whatsapp") {
+        if (!devis.client.phone) {
+          notify("Ce client n'a pas de numéro de téléphone pour WhatsApp.", true);
+          return;
+        }
+        const message =
+          `Bonjour ${devis.client.name}, votre devis ${devis.number} d'un montant de ${devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € est prêt. N'hésitez pas à nous contacter pour toute question.`;
+        const res = await fetch("/api/whatsapp/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: devis.client.phone, message }),
+        });
+        if (res.ok) {
+          notify(`Devis envoyé par WhatsApp à ${devis.client.phone}`);
+        } else {
+          const j = await res.json().catch(() => ({}));
+          notify(j.error ?? "Échec de l'envoi WhatsApp", true);
+        }
       } else {
-        const j = await res.json().catch(() => ({}));
-        notify(j.error ?? "Échec de l'envoi", true);
+        const res = await fetch(`/api/devis/${id}/send`, { method: "POST" });
+        if (res.ok) {
+          setDevis(await res.json());
+          notify(`Devis envoyé par email à ${devis.client.email}`);
+        } else {
+          const j = await res.json().catch(() => ({}));
+          notify(j.error ?? "Échec de l'envoi email", true);
+        }
       }
     } finally {
       setSending(false);
@@ -266,19 +289,35 @@ export default function DevisDetailPage() {
             PDF
           </button>
 
-          {/* Envoyer par email */}
-          {devis.client.email && (
-            <button
-              onClick={sendByEmail}
-              disabled={busy}
-              className="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-sm font-medium px-3.5 py-2 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {sending
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Send className="h-4 w-4" />}
-              Envoyer
-            </button>
-          )}
+          {/* Envoyer selon canal préféré */}
+          {(() => {
+            const channel = devis.client.preferredContact ?? "email";
+            const canSend =
+              (channel === "whatsapp" && !!devis.client.phone) ||
+              (channel === "email" && !!devis.client.email) ||
+              (channel === "telephone" && false);
+            if (!canSend) return null;
+            const icon = sending
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : channel === "whatsapp"
+                ? <MessageCircle className="h-4 w-4" />
+                : <Send className="h-4 w-4" />;
+            const label = channel === "whatsapp" ? "WhatsApp" : "Envoyer";
+            return (
+              <button
+                onClick={sendToClient}
+                disabled={busy}
+                className={`inline-flex items-center gap-2 text-sm font-medium px-3.5 py-2 rounded-lg transition-colors disabled:opacity-50 ${
+                  channel === "whatsapp"
+                    ? "bg-green-50 border border-green-200 text-green-700 hover:bg-green-100"
+                    : "border border-slate-300 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {icon}
+                {label}
+              </button>
+            );
+          })()}
 
           {/* Dupliquer */}
           <button
@@ -358,7 +397,22 @@ export default function DevisDetailPage() {
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
             <User className="h-3.5 w-3.5" /> Client
           </div>
-          <p className="font-semibold text-slate-900">{devis.client.name}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-slate-900">{devis.client.name}</p>
+            {(() => {
+              const ch = devis.client.preferredContact ?? "email";
+              const cfg = {
+                whatsapp:  { label: "WhatsApp",  cls: "bg-green-50 text-green-700 border-green-200", icon: <MessageCircle className="h-3 w-3" /> },
+                email:     { label: "Email",     cls: "bg-blue-50 text-blue-700 border-blue-200",    icon: <Send className="h-3 w-3" /> },
+                telephone: { label: "Téléphone", cls: "bg-slate-50 text-slate-600 border-slate-200", icon: <Phone className="h-3 w-3" /> },
+              }[ch] ?? { label: "Email", cls: "bg-blue-50 text-blue-700 border-blue-200", icon: <Send className="h-3 w-3" /> };
+              return (
+                <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${cfg.cls}`}>
+                  {cfg.icon} {cfg.label}
+                </span>
+              );
+            })()}
+          </div>
           {devis.client.email && (
             <p className="text-sm text-slate-500 mt-1">{devis.client.email}</p>
           )}

@@ -35,7 +35,7 @@ export async function PUT(
       return NextResponse.json({ error: "Payload invalide" }, { status: 400 });
     }
 
-    const { name, email, phone, address } = body as Record<string, unknown>;
+    const { name, email, phone, address, preferredContact } = body as Record<string, unknown>;
 
     if (typeof name !== "string" || !name.trim()) {
       return NextResponse.json(
@@ -44,6 +44,7 @@ export async function PUT(
       );
     }
 
+    const validChannels = ["whatsapp", "email", "telephone"];
     const client = await prisma.client.update({
       where: { id: params.id },
       data: {
@@ -54,6 +55,10 @@ export async function PUT(
           typeof address === "string" && address.trim()
             ? address.trim()
             : null,
+        preferredContact:
+          typeof preferredContact === "string" && validChannels.includes(preferredContact)
+            ? preferredContact
+            : "email",
       },
     });
 
