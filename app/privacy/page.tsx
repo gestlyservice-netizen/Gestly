@@ -27,10 +27,10 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-slate-900">2. Données collectées</h2>
           <ul className="text-sm leading-relaxed text-slate-600 list-disc list-inside space-y-1">
-            <li>Informations de compte : nom, adresse email, nom d'entreprise</li>
+            <li>Informations de compte : nom, adresse email, nom d&apos;entreprise</li>
             <li>Données clients : noms, emails, numéros de téléphone, adresses</li>
             <li>Documents commerciaux : devis, factures et leurs lignes</li>
-            <li>Paramètres de l'entreprise : logo, informations légales, préférences</li>
+            <li>Paramètres de l&apos;entreprise : logo, informations légales, préférences</li>
           </ul>
         </section>
 
@@ -40,7 +40,7 @@ export default function PrivacyPage() {
             Les données collectées sont utilisées exclusivement pour :
           </p>
           <ul className="text-sm leading-relaxed text-slate-600 list-disc list-inside space-y-1">
-            <li>Fournir les fonctionnalités de l'application (création de devis, factures)</li>
+            <li>Fournir les fonctionnalités de l&apos;application (création de devis, factures)</li>
             <li>Envoyer des documents commerciaux à vos clients via email ou WhatsApp</li>
             <li>Générer des PDF à votre intention</li>
             <li>Assurer la sécurité et le bon fonctionnement du service</li>
@@ -56,8 +56,8 @@ export default function PrivacyPage() {
           <ul className="text-sm leading-relaxed text-slate-600 list-disc list-inside space-y-1">
             <li><strong>Clerk</strong> — authentification des utilisateurs</li>
             <li><strong>Supabase / PostgreSQL</strong> — hébergement de la base de données</li>
-            <li><strong>Vercel</strong> — hébergement de l'application</li>
-            <li><strong>Resend</strong> — envoi d'emails transactionnels</li>
+            <li><strong>Vercel</strong> — hébergement de l&apos;application</li>
+            <li><strong>Resend</strong> — envoi d&apos;emails transactionnels</li>
             <li><strong>Meta (WhatsApp Business API)</strong> — envoi de messages WhatsApp</li>
           </ul>
         </section>
@@ -66,7 +66,7 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-slate-900">5. Conservation des données</h2>
           <p className="text-sm leading-relaxed text-slate-600">
             Vos données sont conservées tant que votre compte est actif. En cas de suppression
-            du compte, l'ensemble des données associées est supprimé dans un délai de 30 jours.
+            du compte, l&apos;ensemble des données associées est supprimé dans un délai de 30 jours.
           </p>
         </section>
 
@@ -75,7 +75,7 @@ export default function PrivacyPage() {
           <p className="text-sm leading-relaxed text-slate-600">
             Conformément au Règlement Général sur la Protection des Données (RGPD), vous disposez
             des droits suivants sur vos données : accès, rectification, suppression, portabilité
-            et opposition au traitement. Pour exercer ces droits, contactez-nous à l'adresse
+            et opposition au traitement. Pour exercer ces droits, contactez-nous à l&apos;adresse
             ci-dessous.
           </p>
         </section>
@@ -84,8 +84,8 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-slate-900">7. Sécurité</h2>
           <p className="text-sm leading-relaxed text-slate-600">
             Toutes les communications entre votre navigateur et nos serveurs sont chiffrées via
-            HTTPS/TLS. Les mots de passe ne sont jamais stockés en clair. L'accès à votre compte
-            est protégé par le service d'authentification Clerk.
+            HTTPS/TLS. Les mots de passe ne sont jamais stockés en clair. L&apos;accès à votre compte
+            est protégé par le service d&apos;authentification Clerk.
           </p>
         </section>
 
