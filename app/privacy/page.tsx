@@ -93,8 +93,8 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-slate-900">8. Contact</h2>
           <p className="text-sm leading-relaxed text-slate-600">
             Pour toute question relative à cette politique ou pour exercer vos droits, contactez-nous à :{" "}
-            <a href="mailto:contact@gestly.fr" className="text-blue-600 hover:underline">
-              contact@gestly.fr
+            <a href="mailto:gestlyservice@gmail.com" className="text-blue-600 hover:underline">
+              gestlyservice@gmail.com
             </a>
           </p>
         </section>
