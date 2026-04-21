@@ -144,29 +144,7 @@ export default function DevisDetailPage() {
     setSending(true);
     try {
       if (channel === "whatsapp") {
-        if (!devis.client.phone) {
-          notify("Ce client n'a pas de numéro de téléphone pour WhatsApp.", true);
-          return;
-        }
-        const rawPhone = devis.client.phone!.replace(/\s/g, "");
-        const normalizedPhone = rawPhone.startsWith("0")
-          ? "+33" + rawPhone.slice(1)
-          : rawPhone;
-        const amount = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2 });
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://gestly-iota.vercel.app";
-        const pdfLink = `${appUrl}/d/${devis.id}`;
-        const message = [
-          `Bonjour ${devis.client.name},`,
-          `Votre devis ${devis.number} d'un montant de ${amount} € est prêt.`,
-          `N'hésitez pas à nous contacter pour toute question.`,
-          ``,
-          pdfLink,
-        ].join("\n");
-        const res = await fetch("/api/whatsapp/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: normalizedPhone, message }),
-        });
+        const res = await fetch(`/api/devis/${id}/whatsapp`, { method: "POST" });
         if (res.ok) {
           notify(`Devis envoyé par WhatsApp à ${devis.client.phone}`);
         } else {
