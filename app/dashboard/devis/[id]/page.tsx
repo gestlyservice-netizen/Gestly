@@ -155,7 +155,13 @@ export default function DevisDetailPage() {
         const amount = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2 });
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://gestly-iota.vercel.app";
         const pdfLink = `${appUrl}/print/devis/${devis.id}`;
-        const message = `Bonjour ${devis.client.name},\n\nVotre devis ${devis.number} d'un montant de ${amount} € est prêt.\n\n${pdfLink}\n\nN'hésitez pas à nous contacter pour toute question.`;
+        const message = [
+          `Bonjour ${devis.client.name},`,
+          `Votre devis ${devis.number} d'un montant de ${amount} € est prêt.`,
+          `N'hésitez pas à nous contacter pour toute question.`,
+          ``,
+          pdfLink,
+        ].join("\n");
         const res = await fetch("/api/whatsapp/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
