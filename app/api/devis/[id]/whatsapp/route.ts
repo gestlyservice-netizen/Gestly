@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-function getBaseUrl(request: Request): string {
-  const host = request.headers.get("host") ?? "gestly-iota.vercel.app";
-  const proto = host.startsWith("localhost") ? "http" : "https";
-  return `${proto}://${host}`;
-}
+import { devisPublicLink } from "@/lib/url";
 
 function normalizePhone(raw: string): string {
   const digits = raw.replace(/\s/g, "");
@@ -24,7 +19,7 @@ function buildMessage(clientName: string, devisNumber: string, amount: string, s
 }
 
 export async function POST(
-  req: Request,
+  _req: Request,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -53,8 +48,7 @@ export async function POST(
 
     const to      = normalizePhone(devis.client.phone);
     const amount  = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const shortUrl = `${getBaseUrl(req)}/d/${devis.id}`;
-    const message = buildMessage(devis.client.name, devis.number, amount, shortUrl);
+    const message = buildMessage(devis.client.name, devis.number, amount, devisPublicLink(devis.id));
 
     const metaRes = await fetch(
       `https://graph.facebook.com/v18.0/${WA_PHONE_ID}/messages`,
