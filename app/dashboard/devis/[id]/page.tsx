@@ -153,15 +153,11 @@ export default function DevisDetailPage() {
           ? "+33" + rawPhone.slice(1)
           : rawPhone;
         const amount = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2 });
+        const message = `Bonjour ${devis.client.name}, votre devis ${devis.number} d'un montant de ${amount} € est prêt. N'hésitez pas à nous contacter pour toute question.`;
         const res = await fetch("/api/whatsapp/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            to: normalizedPhone,
-            templateName: "devis_notification",
-            templateLanguage: "fr",
-            templateParams: [devis.client.name, devis.number, amount],
-          }),
+          body: JSON.stringify({ to: normalizedPhone, message }),
         });
         if (res.ok) {
           notify(`Devis envoyé par WhatsApp à ${devis.client.phone}`);
