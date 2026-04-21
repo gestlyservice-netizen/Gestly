@@ -154,7 +154,7 @@ export default function DevisDetailPage() {
           : rawPhone;
         const amount = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2 });
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://gestly-iota.vercel.app";
-        const pdfLink = `${appUrl}/print/devis/${devis.id}`;
+        const pdfLink = `${appUrl}/d/${devis.id}`;
         const message = [
           `Bonjour ${devis.client.name},`,
           `Votre devis ${devis.number} d'un montant de ${amount} € est prêt.`,
