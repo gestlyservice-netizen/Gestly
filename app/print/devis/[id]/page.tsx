@@ -27,6 +27,7 @@ interface Devis {
   sentAt: string | null;
   client: { name: string; email: string | null; phone: string | null; address: string | null };
   lines: DevisLine[];
+  user?: { settings?: Settings | null };
 }
 
 interface Settings {
@@ -66,13 +67,11 @@ export default function PrintDevisPage() {
   const docRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    Promise.all([
-      fetch(`/api/devis/${id}`).then((r) => r.json()),
-      fetch("/api/settings").then((r) => r.json()),
-    ])
-      .then(([devisData, settingsData]) => {
-        setDevis(devisData as Devis);
-        setSettings(settingsData as Settings);
+    fetch(`/api/public/devis/${id}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setDevis(data as Devis);
+        setSettings((data.user?.settings ?? null) as Settings | null);
       })
       .finally(() => setLoading(false));
   }, [id]);

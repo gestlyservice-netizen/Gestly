@@ -7,6 +7,7 @@ const isPublicRoute = createRouteMatcher([
   "/privacy",
   "/print(.*)",
   "/api/whatsapp(.*)",
+  "/api/public(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
