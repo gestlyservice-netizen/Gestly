@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import type { DevisLine } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getPublicUrl } from "@/lib/url";
 
 const fmt = (n: number) =>
   n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -32,8 +33,7 @@ export async function POST(
     );
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const pdfUrl = `${appUrl}/print/devis/${devis.id}`;
+  const pdfUrl = `${getPublicUrl()}/print/devis/${devis.id}`;
 
   const expiryDate = new Date(devis.createdAt);
   expiryDate.setDate(expiryDate.getDate() + devis.validityDays);

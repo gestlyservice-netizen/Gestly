@@ -50,8 +50,11 @@ interface Settings {
 const fmt = (n: number) =>
   n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const fmtDate = (d: string | null) =>
-  d ? new Date(d).toLocaleDateString("fr-FR") : "—";
+const fmtDate = (d: string | Date | null) => {
+  if (!d) return "—";
+  const date = new Date(d);
+  return isNaN(date.getTime()) ? "—" : date.toLocaleDateString("fr-FR");
+};
 
 /* ── Page ───────────────────────────────────────────────── */
 export default function PrintDevisPage() {
@@ -68,10 +71,12 @@ export default function PrintDevisPage() {
 
   useEffect(() => {
     fetch(`/api/public/devis/${id}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setDevis(data as Devis);
-        setSettings((data.user?.settings ?? null) as Settings | null);
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: Devis | null) => {
+        if (data) {
+          setDevis(data);
+          setSettings((data.user?.settings ?? null) as Settings | null);
+        }
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -207,7 +212,7 @@ export default function PrintDevisPage() {
                   {devis.number}
                 </p>
                 <p className="text-sm text-slate-500 mt-1">Date : {fmtDate(devis.createdAt)}</p>
-                <p className="text-sm text-slate-500">Validité : {fmtDate(expiryDate.toISOString())}</p>
+                <p className="text-sm text-slate-500">Validité : {fmtDate(expiryDate)}</p>
               </div>
             </div>
 
@@ -215,14 +220,14 @@ export default function PrintDevisPage() {
             <div className="flex justify-end mb-10">
               <div className="bg-slate-50 rounded-xl px-6 py-4 min-w-[240px]">
                 <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Destinataire</p>
-                <p className="font-bold text-slate-900">{devis.client.name}</p>
-                {devis.client.address && (
+                <p className="font-bold text-slate-900">{devis.client?.name}</p>
+                {devis.client?.address && (
                   <p className="text-sm text-slate-600 mt-1 whitespace-pre-line">{devis.client.address}</p>
                 )}
-                {devis.client.email && (
+                {devis.client?.email && (
                   <p className="text-sm text-slate-500 mt-1">{devis.client.email}</p>
                 )}
-                {devis.client.phone && (
+                {devis.client?.phone && (
                   <p className="text-sm text-slate-500">{devis.client.phone}</p>
                 )}
               </div>
