@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -78,8 +79,9 @@ const fmtDate = (d: string | null) =>
 
 /* ── Page ───────────────────────────────────────────────── */
 export default function DevisDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  const { id }       = useParams<{ id: string }>();
+  const router       = useRouter();
+  const { getToken } = useAuth();
 
   const [devis, setDevis]             = useState<Devis | null>(null);
   const [loading, setLoading]         = useState(true);
@@ -92,12 +94,21 @@ export default function DevisDetailPage() {
   const [statusOpen, setStatusOpen]   = useState(false);
   const statusRef                     = useRef<HTMLDivElement>(null);
 
+  const authFetch = async (url: string, init: RequestInit = {}) => {
+    const token = await getToken();
+    return fetch(url, {
+      ...init,
+      headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` },
+    });
+  };
+
   useEffect(() => {
-    fetch(`/api/devis/${id}`)
+    authFetch(`/api/devis/${id}`)
       .then((r) => r.json())
       .then(setDevis)
       .catch(() => setError("Impossible de charger le devis"))
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   /* Fermer dropdown statut au clic extérieur */
@@ -122,7 +133,7 @@ export default function DevisDetailPage() {
     setUpdating(true);
     setStatusOpen(false);
     try {
-      const res = await fetch(`/api/devis/${id}`, {
+      const res = await authFetch(`/api/devis/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
@@ -144,7 +155,7 @@ export default function DevisDetailPage() {
     setSending(true);
     try {
       if (channel === "whatsapp") {
-        const res = await fetch(`/api/devis/${id}/whatsapp`, { method: "POST" });
+        const res = await authFetch(`/api/devis/${id}/whatsapp`, { method: "POST" });
         if (res.ok) {
           notify(`Devis envoyé par WhatsApp à ${devis.client.phone}`);
         } else {
@@ -152,7 +163,7 @@ export default function DevisDetailPage() {
           notify(j.error ?? "Échec de l'envoi WhatsApp", true);
         }
       } else {
-        const res = await fetch(`/api/devis/${id}/send`, { method: "POST" });
+        const res = await authFetch(`/api/devis/${id}/send`, { method: "POST" });
         if (res.ok) {
           setDevis(await res.json());
           notify(`Devis envoyé par email à ${devis.client.email}`);
@@ -170,7 +181,7 @@ export default function DevisDetailPage() {
   const convertToFacture = async () => {
     setConverting(true);
     try {
-      const res = await fetch(`/api/devis/${id}/to-facture`, { method: "POST" });
+      const res = await authFetch(`/api/devis/${id}/to-facture`, { method: "POST" });
       if (res.ok) {
         const facture = await res.json();
         router.push(`/dashboard/factures/${facture.id}`);
@@ -187,7 +198,7 @@ export default function DevisDetailPage() {
   const duplicate = async () => {
     setDuplicating(true);
     try {
-      const res = await fetch(`/api/devis/${id}/duplicate`, { method: "POST" });
+      const res = await authFetch(`/api/devis/${id}/duplicate`, { method: "POST" });
       if (res.ok) {
         const copy = await res.json();
         router.push(`/dashboard/devis/${copy.id}`);
