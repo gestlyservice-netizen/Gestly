@@ -67,14 +67,18 @@ export async function POST(
       }
     );
 
-    const data = await metaRes.json() as { messages?: { id: string }[]; error?: { message: string } };
+    const data = await metaRes.json() as {
+      messages?: { id: string }[];
+      error?: { message: string; code?: number; type?: string };
+    };
 
     if (!metaRes.ok) {
-      console.error("[POST /api/devis/:id/whatsapp] Meta error:", data.error);
-      return NextResponse.json(
-        { error: data.error?.message ?? "Erreur Meta API" },
-        { status: metaRes.status }
-      );
+      const meta = data.error;
+      console.error("[POST /api/devis/:id/whatsapp] Meta error:", meta);
+      const detail = meta
+        ? `[${meta.code ?? metaRes.status}] ${meta.message}`
+        : `HTTP ${metaRes.status}`;
+      return NextResponse.json({ error: detail }, { status: metaRes.status });
     }
 
     return NextResponse.json({ success: true, messageId: data.messages?.[0]?.id ?? null });
