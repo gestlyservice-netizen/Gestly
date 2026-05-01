@@ -4,18 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { devisPublicLink } from "@/lib/url";
 
 function normalizePhone(raw: string): string {
-  const digits = raw.replace(/\s/g, "");
+  const digits = raw.replace(/[\s\-\.]/g, "");
   return digits.startsWith("0") ? "+33" + digits.slice(1) : digits;
-}
-
-function buildMessage(clientName: string, devisNumber: string, amount: string, shortUrl: string): string {
-  return [
-    `Bonjour ${clientName},`,
-    `Votre devis ${devisNumber} d'un montant de ${amount} \u20ac est pr\u00eat.`,
-    `N\u2019h\u00e9sitez pas \u00e0 nous contacter pour toute question.`,
-    "",
-    shortUrl,
-  ].join("\n");
 }
 
 export async function POST(
@@ -26,7 +16,7 @@ export async function POST(
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
-    const WA_TOKEN   = process.env.WHATSAPP_TOKEN;
+    const WA_TOKEN    = process.env.WHATSAPP_TOKEN;
     const WA_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
     if (!WA_TOKEN || !WA_PHONE_ID) {
@@ -46,9 +36,9 @@ export async function POST(
       return NextResponse.json({ error: "Ce client n'a pas de numéro de téléphone" }, { status: 400 });
     }
 
-    const to      = normalizePhone(devis.client.phone);
-    const amount  = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const message = buildMessage(devis.client.name, devis.number, amount, devisPublicLink(devis.id));
+    const to     = normalizePhone(devis.client.phone);
+    const amount = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const link   = devisPublicLink(devis.id);
 
     const metaRes = await fetch(
       `https://graph.facebook.com/v18.0/${WA_PHONE_ID}/messages`,
@@ -61,8 +51,22 @@ export async function POST(
         body: JSON.stringify({
           messaging_product: "whatsapp",
           to,
-          type: "text",
-          text: { body: message },
+          type: "template",
+          template: {
+            name: "devis_client",
+            language: { code: "fr" },
+            components: [
+              {
+                type: "body",
+                parameters: [
+                  { type: "text", text: devis.client.name },
+                  { type: "text", text: devis.number },
+                  { type: "text", text: amount },
+                  { type: "text", text: link },
+                ],
+              },
+            ],
+          },
         }),
       }
     );
