@@ -2,8 +2,9 @@ import type { SmsProvider } from "./types";
 
 function formatNumber(phone: string): string {
   let n = phone.replace(/\s+/g, "");
-  if (n.startsWith("+")) n = n.slice(1);
-  else if (n.startsWith("0")) n = "33" + n.slice(1);
+  if (n.startsWith("00")) n = "+" + n.slice(2);
+  else if (n.startsWith("0")) n = "+33" + n.slice(1);
+  else if (!n.startsWith("+")) n = "+" + n;
   return n;
 }
 
@@ -28,7 +29,8 @@ export class OvhProvider implements SmsProvider {
       await client.requestPromised("POST", `/sms/${serviceName}/jobs`, {
         message,
         receivers: [formatNumber(to)],
-        sender,
+        senderForResponse: !sender,
+        ...(sender ? { sender } : {}),
         noStopClause: false,
       });
       return true;
