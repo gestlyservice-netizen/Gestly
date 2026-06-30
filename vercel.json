@@ -1,3 +1,6 @@
 {
-  "regions": ["fra1"]
+  "regions": ["fra1"],
+  "crons": [
+    { "path": "/api/admin/ovh-balance/check", "schedule": "0 8 * * *" }
+  ]
 }

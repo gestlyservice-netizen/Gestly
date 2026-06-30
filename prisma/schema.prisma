@@ -149,3 +149,11 @@ model Settings {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+model OvhBalanceAlert {
+  id          String   @id @default(cuid())
+  creditsLeft Int
+  threshold   Int
+  alertSentAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
