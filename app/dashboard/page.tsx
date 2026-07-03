@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
   Clock, FileCheck, TrendingUp, AlertCircle,
-  ArrowUpRight, Plus, FileText, Receipt,
+  ArrowUpRight, Plus, FileText, Receipt, Timer,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth";
@@ -117,8 +117,32 @@ export default async function DashboardPage() {
     },
   ];
 
+  const trialDaysLeft =
+    (user.subscriptionStatus === "trialing" || user.subscriptionStatus === "trial") &&
+    user.trialEndsAt
+      ? Math.max(0, Math.ceil((user.trialEndsAt.getTime() - now.getTime()) / 86_400_000))
+      : null;
+
   return (
     <div className="space-y-6">
+      {/* Bandeau trial */}
+      {trialDaysLeft !== null && trialDaysLeft <= 5 && trialDaysLeft > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-amber-800">
+            <Timer className="h-4 w-4 shrink-0" />
+            <span>
+              Il vous reste <strong>{trialDaysLeft} jour{trialDaysLeft > 1 ? "s" : ""}</strong> d&apos;essai gratuit.
+            </span>
+          </div>
+          <Link
+            href="/abonnement"
+            className="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 transition-colors"
+          >
+            Activer
+          </Link>
+        </div>
+      )}
+
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
