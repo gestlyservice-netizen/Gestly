@@ -6,11 +6,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const user = await getCurrentUser();
   if (!user) redirect("/sign-in");
 
-  const now = new Date();
-  const trialExpired = user.trialEndsAt < now;
-  const notActive = user.subscriptionStatus !== "active";
+  // Option B : carte requise dès l'inscription
+  // Bloque si jamais passé par Stripe OU si abonnement suspendu/impayé
+  const noPaymentMethod = !user.stripeSubscriptionId;
+  const suspended =
+    user.subscriptionStatus === "canceled" || user.subscriptionStatus === "past_due";
 
-  if (trialExpired && notActive) {
+  if (noPaymentMethod || suspended) {
     redirect("/abonnement");
   }
 
