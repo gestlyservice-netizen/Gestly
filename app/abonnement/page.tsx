@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { CheckCircle, Clock, AlertTriangle, Sparkles } from "lucide-react";
+import { CheckCircle, AlertTriangle, Sparkles } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
 import { CheckoutButton } from "./checkout-button";
