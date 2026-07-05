@@ -1,11 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+
+  // Dérive l'URL de base depuis les headers — fonctionne en dev et en prod
+  const proto = req.headers.get("x-forwarded-proto") ?? "https";
+  const host = req.headers.get("host") ?? "www.gestly.fr";
+  const baseUrl = `${proto}://${host}`;
 
   let customerId = user.stripeCustomerId;
   if (!customerId) {
@@ -24,11 +29,11 @@ export async function POST() {
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     payment_method_types: ["card"],
-    line_items: [{ price: process.env.STRIPE_PRICE_ID!, quantity: 1 }],
+    line_items: [{ price: process.env.STRIPE_PRICE_ID!.trim(), quantity: 1 }],
     mode: "subscription",
     subscription_data: { trial_period_days: 14 },
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?payment=success`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/abonnement`,
+    success_url: `${baseUrl}/dashboard?payment=success`,
+    cancel_url: `${baseUrl}/abonnement`,
   });
 
   return NextResponse.json({ url: session.url });
