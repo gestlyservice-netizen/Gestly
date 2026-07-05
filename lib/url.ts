@@ -1,4 +1,4 @@
-const CANONICAL_URL = "https://gestly-iota.vercel.app";
+const CANONICAL_URL = "https://www.gestly.fr";
 
 function resolvePublicUrl(): string {
   const raw = process.env.APP_URL;
