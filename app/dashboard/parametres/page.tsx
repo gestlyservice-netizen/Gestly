@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import Link from "next/link";
 import {
-  Building2, Palette, Hash, FileText,
+  Building2, Palette, Hash, FileText, CreditCard,
   Upload, Loader2, CheckCircle, AlertCircle,
-  Save, X,
+  Save, X, ChevronRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -553,6 +554,23 @@ export default function ParametresPage() {
         </div>
 
       </form>
+
+      {/* ── SECTION 5 : Abonnement ──────────────────────── */}
+      <Link href="/dashboard/parametres/abonnement" className="block group">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-5 flex items-center gap-4 hover:border-blue-300 hover:shadow-md transition-all">
+          <div className="p-2.5 rounded-xl bg-blue-50 shrink-0">
+            <CreditCard className="h-5 w-5 text-blue-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-slate-900">Mon abonnement</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Statut, facturation, moyen de paiement et résiliation
+            </p>
+          </div>
+          <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-blue-500 transition-colors shrink-0" />
+        </div>
+      </Link>
+
     </div>
   );
 }

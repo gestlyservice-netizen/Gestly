@@ -20,11 +20,13 @@ model User {
   logoUrl              String?
   defaultRemindDelay   Int       @default(7)
   defaultRemindMessage String?
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
-  subscriptionStatus   String    @default("trialing")
-  trialEndsAt          DateTime  @default(dbgenerated("NOW() + INTERVAL '14 days'"))
-  plan                 String    @default("starter")
+  stripeCustomerId        String?
+  stripeSubscriptionId    String?
+  subscriptionStatus      String    @default("trialing")
+  trialEndsAt             DateTime  @default(dbgenerated("NOW() + INTERVAL '14 days'"))
+  stripeCurrentPeriodEnd  DateTime?
+  stripeCancelAtPeriodEnd Boolean   @default(false)
+  plan                    String    @default("starter")
   createdAt            DateTime  @default(now())
 
   clients  Client[]
