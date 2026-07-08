@@ -4,7 +4,7 @@ export const metadata = {
 };
 
 export default function PrivacyPage() {
-  const lastUpdated = "20 avril 2026";
+  const lastUpdated = "8 juillet 2026";
 
   return (
     <main className="min-h-screen bg-white py-16 px-4">
@@ -59,14 +59,16 @@ export default function PrivacyPage() {
             <li><strong>Vercel</strong> — hébergement de l&apos;application</li>
             <li><strong>Resend</strong> — envoi d&apos;emails transactionnels</li>
             <li><strong>Meta (WhatsApp Business API)</strong> — envoi de messages WhatsApp</li>
+            <li><strong>Stripe</strong> — traitement des paiements et gestion de l&apos;abonnement</li>
           </ul>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-slate-900">5. Conservation des données</h2>
           <p className="text-sm leading-relaxed text-slate-600">
-            Vos données sont conservées tant que votre compte est actif. En cas de suppression
-            du compte, l&apos;ensemble des données associées est supprimé dans un délai de 30 jours.
+            Vos données sont conservées tant que votre compte est actif. Pour demander la
+            suppression de votre compte et des données associées, contactez-nous à l&apos;adresse
+            indiquée ci-dessous : nous traiterons votre demande dans les meilleurs délais.
           </p>
         </section>
 

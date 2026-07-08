@@ -11,8 +11,6 @@ import {
   Check,
   Star,
   Mail,
-  Phone,
-  ExternalLink,
   Shield,
 } from "lucide-react";
 import { StickyHeader } from "@/components/landing/sticky-header";
@@ -122,9 +120,9 @@ export default function LandingPage() {
 
               <FadeIn delay={200}>
                 <p className="text-lg sm:text-xl text-[#64748B] leading-relaxed max-w-xl mx-auto lg:mx-0">
-                  Créez vos devis en 30 secondes depuis WhatsApp.
-                  Factures conformes, relances automatiques par IA,
-                  pilotage complet de votre activité.
+                  Créez vos devis en quelques clics, envoyez-les par email
+                  ou WhatsApp, et transformez-les en factures conformes
+                  dès qu&apos;ils sont signés.
                 </p>
               </FadeIn>
 
@@ -231,13 +229,13 @@ export default function LandingPage() {
             {[
               {
                 icon: MessageSquare,
-                title: "Devis par WhatsApp",
-                desc: "Dites simplement \"Devis Dupont salle de bain 3200\" et recevez le PDF en 30 secondes. Zéro formation nécessaire.",
+                title: "Devis en quelques clics",
+                desc: "Remplissez client, prestations et prix depuis le dashboard, et envoyez le PDF à votre client par email ou WhatsApp en un clic. Zéro formation nécessaire.",
               },
               {
                 icon: Zap,
-                title: "Relances automatiques IA",
-                desc: "Gestly relance vos clients par SMS au bon moment avec le bon message. Vous ne perdez plus jamais un devis.",
+                title: "Suivi de vos devis en attente",
+                desc: "Le tableau de bord met en évidence les devis envoyés sans réponse, pour que vous sachiez qui relancer.",
               },
               {
                 icon: Receipt,
@@ -271,18 +269,18 @@ export default function LandingPage() {
             {[
               {
                 n: "01",
-                title: "Parlez à Gestly sur WhatsApp",
-                desc: "Envoyez vos instructions en message texte ou vocal. L'IA comprend et exécute.",
+                title: "Créez votre devis dans Gestly",
+                desc: "Client, prestations, prix : votre devis professionnel est prêt en quelques minutes.",
               },
               {
                 n: "02",
-                title: "Recevez votre devis PDF",
-                desc: "En 30 secondes, le devis professionnel est généré et envoyé sur WhatsApp.",
+                title: "Envoyez-le par email ou WhatsApp",
+                desc: "Votre client reçoit un lien vers le devis PDF, qu'il peut consulter et signer en ligne.",
               },
               {
                 n: "03",
-                title: "Gestly gère la suite",
-                desc: "Relances automatiques, signature, transformation en facture. Vous faites votre métier.",
+                title: "Transformez-le en facture",
+                desc: "Une fois le devis signé, générez la facture conforme en un clic. Vous faites votre métier.",
               },
             ].map((step, i) => (
               <FadeIn key={i} delay={i * 100}>
@@ -318,22 +316,19 @@ export default function LandingPage() {
                 </span>
                 <h3 className="text-2xl font-bold text-[#0F172A] mb-4">Gestly Pro</h3>
                 <div className="flex items-end gap-2 mb-1">
-                  <span className="text-2xl text-[#64748B] line-through">49 €</span>
-                  <span className="text-5xl font-extrabold text-[#0F172A]">34 €</span>
+                  <span className="text-5xl font-extrabold text-[#0F172A]">49 €</span>
                   <span className="text-[#64748B] mb-1">/mois</span>
                 </div>
                 <p className="text-sm text-[#2563EB] font-medium">
-                  Pour les 100 premiers — tarif à vie 🎉
+                  14 jours d&apos;essai gratuit
                 </p>
               </div>
               {/* Features */}
               <ul className="px-8 py-6 space-y-3">
                 {[
                   "Devis et factures illimités",
-                  "Bot WhatsApp IA",
-                  "Relances SMS automatiques",
-                  "Signature électronique",
-                  "Pipeline de suivi",
+                  "Envoi par email et WhatsApp",
+                  "Suivi des devis en attente",
                   "Génération PDF professionnelle",
                   "Conforme facturation électronique",
                   "Support prioritaire",
@@ -355,7 +350,7 @@ export default function LandingPage() {
                   Commencer mon essai gratuit
                 </Link>
                 <p className="text-center text-xs text-[#64748B] mt-3">
-                  14 jours gratuits · sans carte bancaire · annulation en 1 clic
+                  14 jours gratuits · aucun prélèvement avant la fin de l&apos;essai · annulation en 1 clic
                 </p>
               </div>
             </div>
@@ -371,10 +366,10 @@ export default function LandingPage() {
               Ce que disent les artisans
             </h2>
           </FadeIn>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 max-w-3xl mx-auto gap-6">
             {[
               {
-                quote: "J'ai récupéré 2 chantiers le premier mois juste grâce aux relances automatiques.",
+                quote: "J'ai récupéré 2 chantiers le premier mois juste grâce au suivi des devis en attente.",
                 name: "Karim M.",
                 job: "Plombier-chauffagiste",
               },
@@ -382,11 +377,6 @@ export default function LandingPage() {
                 quote: "Mes clients me disent que mes devis font très professionnel. Ça change tout.",
                 name: "Sophie L.",
                 job: "Nettoyage professionnel",
-              },
-              {
-                quote: "Créer un devis depuis WhatsApp sur le chantier c'est magique. Je ne reviens pas en arrière.",
-                name: "Thomas R.",
-                job: "Électricien",
               },
             ].map((t, i) => (
               <FadeIn key={i} delay={i * 100}>
@@ -440,7 +430,7 @@ export default function LandingPage() {
               <ArrowRight className="h-4 w-4" />
             </Link>
             <p className="text-blue-200 text-sm mt-4">
-              Sans engagement · sans carte bancaire
+              Sans engagement · aucun prélèvement avant la fin de l&apos;essai
             </p>
           </FadeIn>
         </div>
@@ -449,9 +439,9 @@ export default function LandingPage() {
       {/* ── FOOTER ──────────────────────────────────────── */}
       <footer className="bg-[#0F172A] text-slate-400 py-16 px-4 sm:px-6">
         <div className="max-w-6xl mx-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 mb-12">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 mb-12">
             {/* Logo col */}
-            <div className="col-span-2 sm:col-span-1">
+            <div>
               <div className="flex items-center gap-2 mb-4">
                 <div className="h-8 w-8 rounded-lg bg-[#2563EB] flex items-center justify-center">
                   <Zap className="h-4 w-4 text-white" />
@@ -461,37 +451,21 @@ export default function LandingPage() {
               <p className="text-sm leading-relaxed mb-4">
                 Le CRM tout-en-un pour artisans et indépendants.
               </p>
-              <div className="flex gap-3">
-                <a href="#" className="h-8 w-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-                <a href="#" className="h-8 w-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors">
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              </div>
             </div>
 
             {/* Produit */}
             <div>
               <h4 className="text-white font-semibold text-sm mb-4">Produit</h4>
               <ul className="space-y-2 text-sm">
-                {["Fonctionnalités", "Tarifs", "Démo"].map((l) => (
-                  <li key={l}>
-                    <a href="#" className="hover:text-white transition-colors">{l}</a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Ressources */}
-            <div>
-              <h4 className="text-white font-semibold text-sm mb-4">Ressources</h4>
-              <ul className="space-y-2 text-sm">
-                {["Blog", "FAQ", "Contact"].map((l) => (
-                  <li key={l}>
-                    <a href="#" className="hover:text-white transition-colors">{l}</a>
-                  </li>
-                ))}
+                <li>
+                  <a href="#fonctionnalites" className="hover:text-white transition-colors">Fonctionnalités</a>
+                </li>
+                <li>
+                  <a href="#tarifs" className="hover:text-white transition-colors">Tarifs</a>
+                </li>
+                <li>
+                  <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
+                </li>
               </ul>
             </div>
 
@@ -499,20 +473,14 @@ export default function LandingPage() {
             <div>
               <h4 className="text-white font-semibold text-sm mb-4">Légal</h4>
               <ul className="space-y-2 text-sm mb-6">
-                {["CGV", "Mentions légales", "Confidentialité"].map((l) => (
-                  <li key={l}>
-                    <a href="#" className="hover:text-white transition-colors">{l}</a>
-                  </li>
-                ))}
+                <li>
+                  <a href="/privacy" className="hover:text-white transition-colors">Confidentialité</a>
+                </li>
               </ul>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
                   <Mail className="h-3.5 w-3.5" />
                   <span>contact@gestly.fr</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Phone className="h-3.5 w-3.5" />
-                  <span>WhatsApp</span>
                 </div>
               </div>
             </div>

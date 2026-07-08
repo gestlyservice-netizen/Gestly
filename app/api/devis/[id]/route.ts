@@ -67,6 +67,11 @@ export async function PUT(
     return NextResponse.json({ error: "Données invalides" }, { status: 400 });
   }
 
+  // Vérifier que le client appartient à l'utilisateur (évite un rattachement
+  // à un client d'un autre compte via un clientId arbitraire)
+  const client = await prisma.client.findFirst({ where: { id: clientId, userId: user.id } });
+  if (!client) return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
+
   const computedLines = lines.map((l: {
     description: string; quantity: number; unitPriceHT: number; tvaRate: number;
   }) => ({

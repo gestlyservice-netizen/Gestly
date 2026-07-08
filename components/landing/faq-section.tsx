@@ -12,11 +12,11 @@ const faqs = [
   },
   {
     q: "Combien coûte Gestly après l'essai gratuit ?",
-    a: "Après les 14 jours d'essai gratuit, Gestly Pro est à 49 €/mois. Pour les 100 premiers inscrits, profitez d'un tarif préférentiel à 34 €/mois à vie. Sans engagement, annulation possible à tout moment.",
+    a: "Après les 14 jours d'essai gratuit, Gestly Pro est à 49 €/mois, sans engagement. Vous pouvez annuler à tout moment depuis votre espace client.",
   },
   {
-    q: "Comment fonctionne le bot WhatsApp ?",
-    a: "Vous envoyez un message vocal ou texte à Gestly sur WhatsApp (ex : \"Devis Dupont salle de bain 3200 €\"). L'IA comprend votre demande, génère le devis PDF professionnel et vous l'envoie en moins de 30 secondes. Zéro saisie, zéro formation.",
+    q: "Puis-je envoyer mes devis par WhatsApp ?",
+    a: "Oui. Une fois votre devis créé dans Gestly, vous pouvez l'envoyer à votre client par email ou directement par WhatsApp en un clic — il reçoit un lien vers le PDF professionnel.",
   },
   {
     q: "Est-ce conforme à la facturation électronique 2027 ?",
@@ -24,7 +24,7 @@ const faqs = [
   },
   {
     q: "Puis-je annuler à tout moment ?",
-    a: "Absolument. Aucun engagement, aucune période minimale. Vous pouvez annuler votre abonnement en 1 clic depuis votre espace client, à tout moment. Vos données restent accessibles pendant 30 jours après l'annulation.",
+    a: "Absolument. Aucun engagement, aucune période minimale. Vous pouvez annuler votre abonnement depuis votre espace client, à tout moment, et vous conservez l'accès jusqu'à la fin de la période déjà payée.",
   },
   {
     q: "Mes données sont-elles sécurisées ?",

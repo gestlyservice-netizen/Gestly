@@ -128,7 +128,12 @@ export async function POST(
 
     <!-- Footer -->
     <div style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center">
-      <div style="color:#94a3b8;font-size:12px">Envoyé via <strong>Gestly</strong></div>
+      <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:0">
+        Vous recevez cet email car <strong>${user.companyName}</strong> utilise
+        <strong>Gestly</strong> pour vous envoyer ses devis et factures.<br>
+        Une question ? Contactez-nous à
+        <a href="mailto:contact@gestly.fr" style="color:#94a3b8">contact@gestly.fr</a>.
+      </p>
     </div>
   </div>
 </body>

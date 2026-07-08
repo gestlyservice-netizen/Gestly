@@ -18,8 +18,6 @@ model User {
   address              String?
   phone                String?
   logoUrl              String?
-  defaultRemindDelay   Int       @default(7)
-  defaultRemindMessage String?
   stripeCustomerId        String?
   stripeSubscriptionId    String?
   subscriptionStatus      String    @default("trialing")

@@ -65,7 +65,7 @@ export default async function AbonnementPage() {
                 <ul className="text-sm text-slate-600 space-y-2 text-left">
                   {[
                     "Devis et factures illimités",
-                    "Envoi SMS & WhatsApp intégré",
+                    "Envoi des devis par WhatsApp",
                     "Suivi des paiements en temps réel",
                     "Support prioritaire",
                   ].map((f) => (

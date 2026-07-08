@@ -212,7 +212,7 @@ export default async function AbonnementSettingsPage() {
               <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {[
                   "Devis et factures illimités",
-                  "Envoi SMS & WhatsApp",
+                  "Envoi des devis par WhatsApp",
                   "Suivi des paiements",
                   "Support prioritaire",
                 ].map((f) => (

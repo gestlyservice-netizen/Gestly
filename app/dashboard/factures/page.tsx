@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Receipt, Search, Download, Plus,
+  Receipt, Search, Plus,
   TrendingUp, Clock, CheckCircle, AlertCircle,
   ArrowUpRight,
 } from "lucide-react";
@@ -110,14 +110,6 @@ export default function FacturesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            disabled
-            title="Export disponible prochainement"
-            className="inline-flex items-center gap-2 border border-slate-200 text-slate-400 text-sm font-medium px-4 py-2 rounded-lg cursor-not-allowed"
-          >
-            <Download className="h-4 w-4" />
-            Exporter
-          </button>
           <Link
             href="/dashboard/factures/nouveau"
             className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm"
