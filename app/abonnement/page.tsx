@@ -76,7 +76,7 @@ export default async function AbonnementPage() {
                   ))}
                 </ul>
 
-                <CheckoutButton label="Démarrer mon essai gratuit de 14 jours" />
+                <CheckoutButton label="Démarrer mon essai gratuit de 14 jours" requireConsent />
                 <p className="text-xs text-slate-400">
                   Aucun prélèvement avant le 14ème jour.
                 </p>

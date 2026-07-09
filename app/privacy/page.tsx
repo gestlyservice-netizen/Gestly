@@ -4,7 +4,7 @@ export const metadata = {
 };
 
 export default function PrivacyPage() {
-  const lastUpdated = "8 juillet 2026";
+  const lastUpdated = "9 juillet 2026";
 
   return (
     <main className="min-h-screen bg-white py-16 px-4">
@@ -16,11 +16,14 @@ export default function PrivacyPage() {
         </div>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-slate-900">1. Présentation</h2>
+          <h2 className="text-lg font-semibold text-slate-900">1. Responsable de traitement</h2>
           <p className="text-sm leading-relaxed text-slate-600">
             Gestly est une application de gestion de devis et factures à destination des professionnels
-            indépendants et des petites entreprises. Le présent document décrit la manière dont nous
-            collectons, utilisons et protégeons vos données personnelles.
+            indépendants et des petites entreprises, éditée par <strong>DIGITEO</strong>, société par
+            actions simplifiée (SAS) au capital de 1 €, immatriculée au RCS de Lille sous le numéro
+            995 010 063, dont le siège social est situé 68 rue du Faubourg des Postes, 59000 Lille,
+            France (« nous », « l&apos;Éditeur »). DIGITEO est responsable du traitement des données
+            personnelles décrit dans le présent document.
           </p>
         </section>
 
@@ -35,15 +38,15 @@ export default function PrivacyPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-slate-900">3. Utilisation des données</h2>
+          <h2 className="text-lg font-semibold text-slate-900">3. Finalités et bases légales des traitements</h2>
           <p className="text-sm leading-relaxed text-slate-600">
-            Les données collectées sont utilisées exclusivement pour :
+            Chaque traitement de données repose sur une base légale définie par le RGPD :
           </p>
           <ul className="text-sm leading-relaxed text-slate-600 list-disc list-inside space-y-1">
-            <li>Fournir les fonctionnalités de l&apos;application (création de devis, factures)</li>
-            <li>Envoyer des documents commerciaux à vos clients via email ou WhatsApp</li>
-            <li>Générer des PDF à votre intention</li>
-            <li>Assurer la sécurité et le bon fonctionnement du service</li>
+            <li><strong>Exécution du contrat</strong> — fournir les fonctionnalités de l&apos;application (création de devis, factures, gestion de clients), générer les PDF, gérer votre abonnement</li>
+            <li><strong>Exécution du contrat</strong> — envoyer, à votre demande, des documents commerciaux à vos clients via email ou WhatsApp</li>
+            <li><strong>Intérêt légitime</strong> — assurer la sécurité, la prévention de la fraude et le bon fonctionnement du service</li>
+            <li><strong>Obligation légale</strong> — conserver les données de facturation conformément aux obligations comptables et fiscales</li>
           </ul>
         </section>
 
@@ -64,11 +67,16 @@ export default function PrivacyPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-slate-900">5. Conservation des données</h2>
+          <h2 className="text-lg font-semibold text-slate-900">5. Durée de conservation</h2>
+          <ul className="text-sm leading-relaxed text-slate-600 list-disc list-inside space-y-1">
+            <li><strong>Données de compte</strong> (nom, email, entreprise) — conservées tant que votre compte est actif</li>
+            <li><strong>Devis, factures et données clients</strong> — conservés tant que votre compte est actif, puis pendant la durée légale de conservation des documents comptables (10 ans à compter de la clôture de l&apos;exercice, conformément au Code de commerce)</li>
+            <li><strong>Données de paiement</strong> — gérées directement par Stripe selon sa propre politique de conservation ; DIGITEO ne stocke aucune donnée de carte bancaire</li>
+          </ul>
           <p className="text-sm leading-relaxed text-slate-600">
-            Vos données sont conservées tant que votre compte est actif. Pour demander la
-            suppression de votre compte et des données associées, contactez-nous à l&apos;adresse
-            indiquée ci-dessous : nous traiterons votre demande dans les meilleurs délais.
+            Pour demander la suppression de votre compte et des données non soumises à une obligation
+            légale de conservation, contactez-nous à l&apos;adresse indiquée ci-dessous : nous
+            traiterons votre demande dans les meilleurs délais.
           </p>
         </section>
 
@@ -95,15 +103,17 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-slate-900">8. Contact</h2>
           <p className="text-sm leading-relaxed text-slate-600">
             Pour toute question relative à cette politique ou pour exercer vos droits, contactez-nous à :{" "}
-            <a href="mailto:gestlyservice@gmail.com" className="text-blue-600 hover:underline">
-              gestlyservice@gmail.com
+            <a href="mailto:contact@gestly.fr" className="text-blue-600 hover:underline">
+              contact@gestly.fr
             </a>
+            . L&apos;identité complète de l&apos;Éditeur figure dans nos{" "}
+            <a href="/mentions-legales" className="text-blue-600 hover:underline">mentions légales</a>.
           </p>
         </section>
 
         <div className="border-t border-slate-100 pt-6">
           <p className="text-xs text-slate-400">
-            © {new Date().getFullYear()} Gestly — Tous droits réservés
+            © {new Date().getFullYear()} DIGITEO — Gestly. Tous droits réservés.
           </p>
         </div>
 

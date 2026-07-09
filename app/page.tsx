@@ -466,6 +466,9 @@ export default function LandingPage() {
                 <li>
                   <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
                 </li>
+                <li>
+                  <a href="/contact" className="hover:text-white transition-colors">Contact</a>
+                </li>
               </ul>
             </div>
 
@@ -474,14 +477,26 @@ export default function LandingPage() {
               <h4 className="text-white font-semibold text-sm mb-4">Légal</h4>
               <ul className="space-y-2 text-sm mb-6">
                 <li>
+                  <a href="/mentions-legales" className="hover:text-white transition-colors">Mentions légales</a>
+                </li>
+                <li>
+                  <a href="/cgu" className="hover:text-white transition-colors">CGU</a>
+                </li>
+                <li>
+                  <a href="/cgv" className="hover:text-white transition-colors">CGV</a>
+                </li>
+                <li>
                   <a href="/privacy" className="hover:text-white transition-colors">Confidentialité</a>
+                </li>
+                <li>
+                  <a href="/remboursement" className="hover:text-white transition-colors">Remboursement</a>
                 </li>
               </ul>
               <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
+                <a href="mailto:contact@gestly.fr" className="flex items-center gap-2 hover:text-white transition-colors">
                   <Mail className="h-3.5 w-3.5" />
-                  <span>contact@gestly.fr</span>
-                </div>
+                  contact@gestly.fr
+                </a>
               </div>
             </div>
           </div>
