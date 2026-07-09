@@ -11,6 +11,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/health",
   "/api/stripe/(.*)",
   "/api/admin/ovh-balance/check",
+  "/api/admin/stripe-diagnostic",
   "/api/whatsapp(.*)",
   "/api/public(.*)",
 ]);
