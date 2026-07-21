@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, Loader2, Save, CheckCircle, AlertCircle, Bell, Mail, MessageSquare } from "lucide-react";
+import { ChevronLeft, Loader2, Save, CheckCircle, AlertCircle, Bell, Mail, MessageSquare, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -33,13 +33,43 @@ export default function RelancesSettingsPage() {
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [toast, setToast]       = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [improving, setImproving]     = useState<1 | 2 | 3 | null>(null);
 
   useEffect(() => {
     fetch("/api/settings/relances")
       .then((r) => r.json())
       .then((data) => setSettings({ ...DEFAULTS, ...data }))
       .finally(() => setLoading(false));
+    fetch("/api/ai/improve-message")
+      .then((r) => (r.ok ? r.json() : { configured: false }))
+      .then((data) => setAiAvailable(!!data.configured))
+      .catch(() => {});
   }, []);
+
+  const improveMessage = async (n: 1 | 2 | 3) => {
+    const key = `messageJ${n}` as "messageJ1" | "messageJ2" | "messageJ3";
+    const draft = settings[key];
+    if (!draft) return;
+    setImproving(n);
+    try {
+      const r = await fetch("/api/ai/improve-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft }),
+      });
+      const data = await r.json();
+      if (r.ok) {
+        setSettings((s) => ({ ...s, [key]: data.text }));
+      } else {
+        setToast({ type: "error", msg: data.error ?? "Échec de l'amélioration IA" });
+      }
+    } catch {
+      setToast({ type: "error", msg: "Erreur réseau" });
+    } finally {
+      setImproving(null);
+    }
+  };
 
   useEffect(() => {
     if (!toast) return;
@@ -173,6 +203,19 @@ export default function RelancesSettingsPage() {
                 value={settings[`messageJ${n}` as "messageJ1" | "messageJ2" | "messageJ3"] ?? ""}
                 onChange={(e) => setSettings((s) => ({ ...s, [`messageJ${n}`]: e.target.value }))}
               />
+              {aiAvailable && (
+                <button
+                  type="button"
+                  onClick={() => improveMessage(n)}
+                  disabled={improving !== null || !settings[`messageJ${n}` as "messageJ1" | "messageJ2" | "messageJ3"]}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 disabled:opacity-40"
+                >
+                  {improving === n
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Sparkles className="h-3.5 w-3.5" />}
+                  Améliorer avec l&apos;IA
+                </button>
+              )}
             </div>
           ))}
         </CardContent>
