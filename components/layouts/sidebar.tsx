@@ -10,6 +10,8 @@ import {
   Settings,
   X,
   Zap,
+  CalendarDays,
+  Kanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +20,8 @@ const navItems = [
   { href: "/dashboard/clients", label: "Clients", icon: Users },
   { href: "/dashboard/devis", label: "Devis", icon: FileText },
   { href: "/dashboard/factures", label: "Factures", icon: Receipt },
+  { href: "/dashboard/agenda", label: "Agenda", icon: CalendarDays },
+  { href: "/dashboard/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/dashboard/parametres", label: "Paramètres", icon: Settings },
 ];
 
