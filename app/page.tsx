@@ -11,6 +11,7 @@ import {
   Star,
   Mail,
   Shield,
+  Bell,
 } from "lucide-react";
 import { StickyHeader } from "@/components/landing/sticky-header";
 import { FadeIn } from "@/components/landing/fade-in";
@@ -223,7 +224,7 @@ export default function LandingPage() {
               Gestly résout tout ça en un seul outil
             </h2>
           </FadeIn>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
               {
                 icon: MessageSquare,
@@ -239,6 +240,11 @@ export default function LandingPage() {
                 icon: Receipt,
                 title: "Facture professionnelle en 1 clic",
                 desc: "Transformez un devis signé en facture instantanément, avec toutes les mentions légales obligatoires.",
+              },
+              {
+                icon: Bell,
+                title: "Relances automatiques",
+                desc: "Activez-les en un clic : Gestly relance vos clients par email et/ou SMS selon vos propres délais, en 3 niveaux progressifs.",
               },
             ].map((card, i) => (
               <FadeIn key={i} delay={i * 100}>
@@ -326,7 +332,8 @@ export default function LandingPage() {
                 {[
                   "Devis et factures illimités",
                   "Envoi par email et WhatsApp",
-                  "Suivi des devis en attente",
+                  "Relances automatiques (email/SMS)",
+                  "Agenda et pipeline commercial",
                   "Génération PDF professionnelle",
                   "Mentions légales automatiques",
                   "Support par email",
