@@ -237,6 +237,7 @@ model Relance {
   canal     String // "email" | "sms"
   statut    String // "envoyee" | "echec"
   erreur    String?
+  attempts  Int      @default(1)
   envoyeeAt DateTime @default(now())
 
   facture Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)

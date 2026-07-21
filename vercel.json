@@ -3,6 +3,7 @@
   "crons": [
     { "path": "/api/admin/ovh-balance/check", "schedule": "0 8 * * *" },
     { "path": "/api/health", "schedule": "0 14 * * *" },
-    { "path": "/api/stripe/resync", "schedule": "0 3 * * *" }
+    { "path": "/api/stripe/resync", "schedule": "0 3 * * *" },
+    { "path": "/api/relances/check", "schedule": "0 6 * * *" }
   ]
 }

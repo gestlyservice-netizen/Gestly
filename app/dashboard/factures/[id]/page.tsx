@@ -61,6 +61,15 @@ interface Avoir {
   createdAt: string;
 }
 
+interface RelanceHistoryItem {
+  id:        string;
+  niveau:    number;
+  canal:     string;
+  statut:    string;
+  erreur:    string | null;
+  envoyeeAt: string;
+}
+
 /* ── Helpers ─────────────────────────────────────────────── */
 const fmt = (n: number) =>
   n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -95,6 +104,7 @@ export default function FactureDetailPage() {
   const [sendError,   setSendError]   = useState<string | null>(null);
 
   const [avoirs,       setAvoirs]       = useState<Avoir[]>([]);
+  const [relances,     setRelances]     = useState<RelanceHistoryItem[]>([]);
   const [avoirOpen,    setAvoirOpen]    = useState(false);
   const [avoirType,    setAvoirType]    = useState<"total" | "partiel">("total");
   const [avoirReason,  setAvoirReason]  = useState("");
@@ -126,6 +136,14 @@ export default function FactureDetailPage() {
     fetch(`/api/factures/${id}/avoir`)
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setAvoirs(data as Avoir[]))
+      .catch(() => {});
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    fetch(`/api/factures/${id}/relances`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setRelances(data as RelanceHistoryItem[]))
       .catch(() => {});
   }, [id]);
 
@@ -517,6 +535,32 @@ export default function FactureDetailPage() {
                     PDF
                   </a>
                 </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ── Historique des relances ────────────────────────── */}
+      {relances.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+            <Send className="h-4 w-4 text-slate-400" />
+            <h2 className="text-sm font-semibold text-slate-700">Historique des relances</h2>
+          </div>
+          <ul className="divide-y divide-slate-50">
+            {relances.map((r) => (
+              <li key={r.id} className="px-5 py-3 flex items-center justify-between text-sm">
+                <div>
+                  <span className="font-semibold text-slate-800">Niveau {r.niveau}</span>
+                  <span className="text-slate-400 ml-2 uppercase text-xs">{r.canal}</span>
+                  <span className="text-slate-400 ml-2">· {fmtDate(r.envoyeeAt)}</span>
+                </div>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  r.statut === "envoyee" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"
+                }`}>
+                  {r.statut === "envoyee" ? "Envoyée" : `Échec${r.erreur ? ` — ${r.erreur}` : ""}`}
+                </span>
               </li>
             ))}
           </ul>
