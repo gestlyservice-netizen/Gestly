@@ -16,6 +16,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Signature invalide" }, { status: 400 });
   }
 
+  try {
+    await handleEvent(event);
+  } catch (err) {
+    console.error(`[POST /api/stripe/webhook] Échec du traitement de "${event.type}":`, err);
+    return NextResponse.json({ error: "Échec du traitement de l'événement" }, { status: 500 });
+  }
+
+  return NextResponse.json({ received: true });
+}
+
+async function handleEvent(event: Stripe.Event) {
   function toCustomerId(
     raw: string | Stripe.Customer | Stripe.DeletedCustomer | null | undefined
   ): string | null {
@@ -120,6 +131,4 @@ export async function POST(req: NextRequest) {
       break;
     }
   }
-
-  return NextResponse.json({ received: true });
 }
