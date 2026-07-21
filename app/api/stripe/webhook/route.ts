@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
+import { toCustomerId, subscriptionToUserUpdate } from "@/lib/stripe-sync";
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
@@ -27,28 +28,11 @@ export async function POST(req: NextRequest) {
 }
 
 async function handleEvent(event: Stripe.Event) {
-  function toCustomerId(
-    raw: string | Stripe.Customer | Stripe.DeletedCustomer | null | undefined
-  ): string | null {
-    if (!raw) return null;
-    return typeof raw === "string" ? raw : raw.id;
-  }
-
   function toSubscriptionId(
     raw: string | Stripe.Subscription | null | undefined
   ): string | null {
     if (!raw) return null;
     return typeof raw === "string" ? raw : raw.id;
-  }
-
-  function periodEndDate(sub: Stripe.Subscription): Date | null {
-    const ts = sub.items.data[0]?.current_period_end;
-    return ts ? new Date(ts * 1000) : null;
-  }
-
-  function trialEndDate(sub: Stripe.Subscription): Date | null {
-    const ts = sub.trial_end;
-    return ts ? new Date(ts * 1000) : null;
   }
 
   switch (event.type) {
@@ -61,13 +45,7 @@ async function handleEvent(event: Stripe.Event) {
         const sub = await stripe.subscriptions.retrieve(subId);
         await prisma.user.updateMany({
           where: { stripeCustomerId: cid },
-          data: {
-            stripeSubscriptionId: subId,
-            subscriptionStatus: sub.status,
-            stripeCurrentPeriodEnd: periodEndDate(sub),
-            stripeCancelAtPeriodEnd: sub.cancel_at_period_end,
-            trialEndsAt: trialEndDate(sub) ?? undefined,
-          },
+          data: subscriptionToUserUpdate(sub),
         });
       }
       break;
@@ -77,16 +55,9 @@ async function handleEvent(event: Stripe.Event) {
       const sub = event.data.object as Stripe.Subscription;
       const cid = toCustomerId(sub.customer);
       if (cid) {
-        const trialEnd = trialEndDate(sub);
         await prisma.user.updateMany({
           where: { stripeCustomerId: cid },
-          data: {
-            stripeSubscriptionId: sub.id,
-            subscriptionStatus: sub.status,
-            stripeCurrentPeriodEnd: periodEndDate(sub),
-            stripeCancelAtPeriodEnd: sub.cancel_at_period_end,
-            ...(trialEnd ? { trialEndsAt: trialEnd } : {}),
-          },
+          data: subscriptionToUserUpdate(sub),
         });
       }
       break;
