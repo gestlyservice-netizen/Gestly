@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (isSubscriptionBlocked(user)) {
+      return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+    }
 
     const factures = await prisma.facture.findMany({
       where: { userId: user.id },
@@ -24,6 +27,9 @@ export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (isSubscriptionBlocked(user)) {
+      return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+    }
 
     const body: unknown = await request.json().catch(() => null);
     if (!body || typeof body !== "object") {

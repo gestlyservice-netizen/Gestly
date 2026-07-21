@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import type { DevisLine } from "@prisma/client";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getPublicUrl } from "@/lib/url";
 
@@ -18,6 +18,9 @@ export async function POST(
   const resend = new Resend(process.env.RESEND_API_KEY);
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
 
   const devis = await prisma.devis.findFirst({
     where: { id: params.id, userId: user.id },

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { devisPublicLink } from "@/lib/url";
 
@@ -15,6 +15,9 @@ export async function POST(
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (isSubscriptionBlocked(user)) {
+      return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+    }
 
     const WA_TOKEN    = process.env.WHATSAPP_TOKEN;
     const WA_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;

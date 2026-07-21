@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 async function getClientForUser(id: string, userId: string) {
@@ -14,6 +14,9 @@ export async function PUT(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (isSubscriptionBlocked(user)) {
+      return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
     }
 
     const existing = await getClientForUser(params.id, user.id);
@@ -80,6 +83,9 @@ export async function DELETE(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (isSubscriptionBlocked(user)) {
+      return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
     }
 
     const existing = await getClientForUser(params.id, user.id);

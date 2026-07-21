@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 async function getDevisForUser(id: string, userId: string) {
@@ -15,6 +15,9 @@ export async function GET(
 ) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
 
   const devis = await getDevisForUser(params.id, user.id);
   if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
@@ -28,6 +31,9 @@ export async function PATCH(
 ) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
 
   const devis = await getDevisForUser(params.id, user.id);
   if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
@@ -57,6 +63,9 @@ export async function PUT(
 ) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
 
   const devis = await getDevisForUser(params.id, user.id);
   if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
@@ -112,6 +121,9 @@ export async function DELETE(
 ) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
 
   const devis = await getDevisForUser(params.id, user.id);
   if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });

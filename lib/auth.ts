@@ -1,6 +1,18 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "./prisma";
 
+// Même logique que app/dashboard/layout.tsx : jamais passé par Stripe, ou abonnement suspendu/impayé.
+export function isSubscriptionBlocked(user: {
+  stripeSubscriptionId: string | null;
+  subscriptionStatus: string;
+}) {
+  return (
+    !user.stripeSubscriptionId ||
+    user.subscriptionStatus === "canceled" ||
+    user.subscriptionStatus === "past_due"
+  );
+}
+
 export async function getCurrentUser() {
   const { userId: clerkId } = await auth();
   if (!clerkId) return null;

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 
 export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (isSubscriptionBlocked(user)) {
+      return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+    }
 
     const supabaseUrl    = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
