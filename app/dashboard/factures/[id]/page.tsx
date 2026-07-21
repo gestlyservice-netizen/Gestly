@@ -8,6 +8,13 @@ import {
   FileText, Download, Send, CheckCircle,
 } from "lucide-react";
 import { generateFacturePDF } from "@/lib/generate-pdf";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 
 /* ── Types ──────────────────────────────────────────────── */
 interface Line {
@@ -30,6 +37,7 @@ interface Facture {
   dueDate:   string | null;
   createdAt: string;
   paidAt:    string | null;
+  sentAt:    string | null;
   client: {
     name:    string;
     email:   string | null;
@@ -70,6 +78,13 @@ export default function FactureDetailPage() {
   const [error, setError]       = useState<string | null>(null);
   const [success, setSuccess]   = useState<string | null>(null);
 
+  const [sendOpen,    setSendOpen]    = useState(false);
+  const [sendTo,      setSendTo]      = useState("");
+  const [sendSubject, setSendSubject] = useState("");
+  const [sendMessage, setSendMessage] = useState("");
+  const [sending,     setSending]     = useState(false);
+  const [sendError,   setSendError]   = useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -91,6 +106,42 @@ export default function FactureDetailPage() {
     if (isError) setError(msg);
     else setSuccess(msg);
     setTimeout(() => { setError(null); setSuccess(null); }, 4000);
+  };
+
+  const openSendDialog = () => {
+    if (!facture) return;
+    setSendTo(facture.client.email ?? "");
+    setSendSubject(`Facture ${facture.number} — Gestly`);
+    setSendMessage(
+      `Bonjour ${facture.client.name},\n\nVeuillez trouver ci-joint votre facture ${facture.number} d'un montant de ${fmt(facture.totalTTC)} € TTC.\n\nCordialement,`
+    );
+    setSendError(null);
+    setSendOpen(true);
+  };
+
+  const sendFacture = async () => {
+    if (!facture) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const r = await fetch(`/api/factures/${id}/send`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ to: sendTo, subject: sendSubject, message: sendMessage }),
+      });
+      const data = await r.json();
+      if (r.ok) {
+        setFacture(data as Facture);
+        setSendOpen(false);
+        notify("Facture envoyée par email");
+      } else {
+        setSendError((data as { error?: string }).error ?? "Échec de l'envoi");
+      }
+    } catch {
+      setSendError("Erreur réseau lors de l'envoi");
+    } finally {
+      setSending(false);
+    }
   };
 
   const markAsPaid = async () => {
@@ -205,15 +256,13 @@ export default function FactureDetailPage() {
             PDF
           </button>
 
-          {facture.client.email && (
-            <a
-              href={`mailto:${facture.client.email}?subject=Facture ${facture.number}&body=Bonjour,%0A%0AVeuillez trouver ci-joint votre facture ${facture.number}.%0A%0ACordialement`}
-              className="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-sm font-medium px-3.5 py-2 rounded-lg transition-colors"
-            >
-              <Send className="h-4 w-4" />
-              Envoyer
-            </a>
-          )}
+          <button
+            onClick={openSendDialog}
+            className="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-sm font-medium px-3.5 py-2 rounded-lg transition-colors"
+          >
+            <Send className="h-4 w-4" />
+            Envoyer par email
+          </button>
 
           {facture.status !== "payee" && (
             <button
@@ -280,6 +329,10 @@ export default function FactureDetailPage() {
             <div className="flex justify-between">
               <span className="text-slate-500">Payée le</span>
               <span className="font-medium text-slate-800">{fmtDate(facture.paidAt)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Envoyée le</span>
+              <span className="font-medium text-slate-800">{fmtDate(facture.sentAt)}</span>
             </div>
             {facture.devis && (
               <div className="flex justify-between">
@@ -355,6 +408,50 @@ export default function FactureDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Dialog envoi email ────────────────────────────── */}
+      <Dialog open={sendOpen} onOpenChange={setSendOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Envoyer la facture par email</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Destinataire</Label>
+              <Input
+                type="email"
+                value={sendTo}
+                onChange={(e) => setSendTo(e.target.value)}
+                placeholder="client@exemple.fr"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Objet</Label>
+              <Input value={sendSubject} onChange={(e) => setSendSubject(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Message</Label>
+              <Textarea rows={5} value={sendMessage} onChange={(e) => setSendMessage(e.target.value)} />
+            </div>
+            <p className="text-xs text-slate-400">Le PDF de la facture sera joint automatiquement.</p>
+            {sendError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {sendError}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={sendFacture}
+              disabled={sending || !sendTo.trim()}
+              className="inline-flex items-center gap-2"
+            >
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {sending ? "Envoi…" : "Envoyer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
