@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 
-// Public read-only endpoint — used by the print page (no auth required).
-// The CUID acts as an unguessable token.
+// Public read-only endpoint — utilisé par la page d'impression, à la fois
+// pour le propriétaire (téléchargement PDF interne) et pour le client final
+// (lien partagé). Le CUID agit comme jeton non-devinable.
+// L'expiration/révocation du lien ne s'applique jamais au propriétaire.
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } }
@@ -21,6 +24,21 @@ export async function GET(
 
     if (!devis) {
       return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
+    }
+
+    const { userId: clerkId } = await auth();
+    const isOwner = !!clerkId && clerkId === (await prisma.user.findUnique({
+      where: { id: devis.userId },
+      select: { clerkId: true },
+    }))?.clerkId;
+
+    if (!isOwner) {
+      if (devis.linkRevoked) {
+        return NextResponse.json({ error: "Ce lien a été révoqué" }, { status: 403 });
+      }
+      if (devis.linkExpiresAt && devis.linkExpiresAt < new Date()) {
+        return NextResponse.json({ error: "Ce lien a expiré" }, { status: 403 });
+      }
     }
 
     return NextResponse.json(devis);

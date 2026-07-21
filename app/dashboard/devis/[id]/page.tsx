@@ -32,6 +32,8 @@ interface Devis {
   createdAt: string;
   sentAt: string | null;
   signedAt: string | null;
+  linkExpiresAt: string | null;
+  linkRevoked: boolean;
   clientId: string;
   client: {
     id: string;
@@ -92,6 +94,7 @@ export default function DevisDetailPage() {
   const [error, setError]             = useState<string | null>(null);
   const [success, setSuccess]         = useState<string | null>(null);
   const [statusOpen, setStatusOpen]   = useState(false);
+  const [linkBusy, setLinkBusy]       = useState(false);
   const statusRef                     = useRef<HTMLDivElement>(null);
 
   const authFetch = async (url: string, init: RequestInit = {}) => {
@@ -208,6 +211,32 @@ export default function DevisDetailPage() {
       }
     } finally {
       setDuplicating(false);
+    }
+  };
+
+  /* Lien public : révoquer / régénérer / expiration à 30 jours */
+  const updateLink = async (action: "revoke" | "regenerate" | "set_expiration", expiresInDays?: number | null) => {
+    setLinkBusy(true);
+    try {
+      const res = await authFetch(`/api/devis/${id}/link`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, expiresInDays }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setDevis((prev) => prev ? { ...prev, linkRevoked: data.linkRevoked, linkExpiresAt: data.linkExpiresAt } : prev);
+        notify(
+          action === "revoke" ? "Lien révoqué" :
+          action === "regenerate" ? "Lien réactivé" : "Expiration mise à jour"
+        );
+      } else {
+        notify(data.error ?? "Erreur", true);
+      }
+    } catch {
+      notify("Erreur réseau", true);
+    } finally {
+      setLinkBusy(false);
     }
   };
 
@@ -390,6 +419,48 @@ export default function DevisDetailPage() {
           ✓ {success}
         </div>
       )}
+
+      {/* ── Lien public de partage ───────────────────────── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Lien public du devis</p>
+          {devis.linkRevoked ? (
+            <p className="text-sm text-red-600 font-medium">Révoqué — le client ne peut plus y accéder</p>
+          ) : devis.linkExpiresAt && new Date(devis.linkExpiresAt) < new Date() ? (
+            <p className="text-sm text-amber-600 font-medium">Expiré le {fmtDate(devis.linkExpiresAt)}</p>
+          ) : devis.linkExpiresAt ? (
+            <p className="text-sm text-slate-600">Actif jusqu&apos;au {fmtDate(devis.linkExpiresAt)}</p>
+          ) : (
+            <p className="text-sm text-slate-600">Actif, sans expiration</p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => updateLink("set_expiration", 30)}
+            disabled={linkBusy}
+            className="text-xs font-medium border border-slate-300 text-slate-600 hover:bg-slate-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            Expire dans 30 jours
+          </button>
+          {devis.linkRevoked ? (
+            <button
+              onClick={() => updateLink("regenerate", 30)}
+              disabled={linkBusy}
+              className="text-xs font-medium border border-blue-300 text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+            >
+              Réactiver le lien
+            </button>
+          ) : (
+            <button
+              onClick={() => updateLink("revoke")}
+              disabled={linkBusy}
+              className="text-xs font-medium border border-red-300 text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+            >
+              Révoquer
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* ── Infos client + devis ───────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
