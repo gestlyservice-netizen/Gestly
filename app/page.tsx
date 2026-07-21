@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   ArrowRight,
-  Play,
   Clock,
   AlertTriangle,
   TrendingDown,
@@ -102,7 +101,7 @@ export default function LandingPage() {
               <FadeIn delay={0}>
                 <div className="inline-flex items-center gap-2 bg-blue-50 text-[#2563EB] text-sm font-medium px-4 py-2 rounded-full border border-blue-100">
                   <Shield className="h-3.5 w-3.5" />
-                  Conforme facturation électronique 2027
+                  Pensé pour les artisans et indépendants
                 </div>
               </FadeIn>
 
@@ -112,16 +111,16 @@ export default function LandingPage() {
                   <br />
                   un chantier.
                   <br />
-                  <span className="text-[#2563EB]">Gestly relance</span>
+                  <span className="text-[#2563EB]">Gestly vous dit</span>
                   <br />
-                  <span className="text-[#2563EB]">pour vous.</span>
+                  <span className="text-[#2563EB]">qui relancer.</span>
                 </h1>
               </FadeIn>
 
               <FadeIn delay={200}>
                 <p className="text-lg sm:text-xl text-[#64748B] leading-relaxed max-w-xl mx-auto lg:mx-0">
                   Créez vos devis en quelques clics, envoyez-les par email
-                  ou WhatsApp, et transformez-les en factures conformes
+                  ou WhatsApp, et transformez-les en factures professionnelles
                   dès qu&apos;ils sont signés.
                 </p>
               </FadeIn>
@@ -139,8 +138,7 @@ export default function LandingPage() {
                     href="#fonctionnalites"
                     className="inline-flex items-center justify-center gap-2 text-[#0F172A] font-semibold border border-slate-300 hover:border-slate-400 bg-white px-6 py-3.5 rounded-xl transition-all hover:-translate-y-0.5"
                   >
-                    <Play className="h-4 w-4 text-[#2563EB]" />
-                    Voir la démo
+                    Voir les fonctionnalités
                   </Link>
                 </div>
               </FadeIn>
@@ -159,7 +157,7 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center">
           <FadeIn>
             <p className="text-sm font-medium text-[#64748B] uppercase tracking-widest mb-6">
-              Plus de 100 artisans font confiance à Gestly
+              Conçu pour les artisans et indépendants
             </p>
             <div className="flex flex-wrap justify-center gap-3">
               {["Plombiers", "Électriciens", "Peintres", "Nettoyage", "Paysagistes"].map((m) => (
@@ -239,8 +237,8 @@ export default function LandingPage() {
               },
               {
                 icon: Receipt,
-                title: "Facture conforme en 1 clic",
-                desc: "Transformez un devis signé en facture Factur-X conforme instantanément. Prêt pour 2027.",
+                title: "Facture professionnelle en 1 clic",
+                desc: "Transformez un devis signé en facture instantanément, avec toutes les mentions légales obligatoires.",
               },
             ].map((card, i) => (
               <FadeIn key={i} delay={i * 100}>
@@ -275,12 +273,12 @@ export default function LandingPage() {
               {
                 n: "02",
                 title: "Envoyez-le par email ou WhatsApp",
-                desc: "Votre client reçoit un lien vers le devis PDF, qu'il peut consulter et signer en ligne.",
+                desc: "Votre client reçoit un lien vers le devis PDF, qu'il peut consulter en ligne à tout moment.",
               },
               {
                 n: "03",
                 title: "Transformez-le en facture",
-                desc: "Une fois le devis signé, générez la facture conforme en un clic. Vous faites votre métier.",
+                desc: "Une fois le devis signé, générez la facture en un clic. Vous faites votre métier.",
               },
             ].map((step, i) => (
               <FadeIn key={i} delay={i * 100}>
@@ -330,8 +328,8 @@ export default function LandingPage() {
                   "Envoi par email et WhatsApp",
                   "Suivi des devis en attente",
                   "Génération PDF professionnelle",
-                  "Conforme facturation électronique",
-                  "Support prioritaire",
+                  "Mentions légales automatiques",
+                  "Support par email",
                 ].map((f) => (
                   <li key={f} className="flex items-center gap-3 text-sm text-[#0F172A]">
                     <div className="h-5 w-5 rounded-full bg-green-100 flex items-center justify-center shrink-0">
@@ -350,7 +348,7 @@ export default function LandingPage() {
                   Commencer mon essai gratuit
                 </Link>
                 <p className="text-center text-xs text-[#64748B] mt-3">
-                  14 jours gratuits · aucun prélèvement avant la fin de l&apos;essai · annulation en 1 clic
+                  14 jours gratuits · aucun prélèvement avant la fin de l&apos;essai · résiliable à tout moment
                 </p>
               </div>
             </div>

@@ -24,20 +24,16 @@ import { Switch } from "@/components/ui/switch";
 const schema = z.object({
   companyName:           z.string().min(1, "Le nom de l'entreprise est requis"),
   formeJuridique:        z.string().optional(),
-  siret:                 z.union([
-    z.string().length(14, "Le SIRET doit contenir exactement 14 chiffres").regex(/^\d{14}$/, "Chiffres uniquement"),
-    z.literal(""),
-  ]).optional(),
+  siret:                 z.string()
+    .length(14, "Le SIRET doit contenir exactement 14 chiffres")
+    .regex(/^\d{14}$/, "Chiffres uniquement"),
   tvaIntracom:           z.union([
     z.string().regex(/^FR[0-9A-Z]{2}\d{9}$/, "Format attendu : FR + 2 car. + 9 chiffres (ex: FR12345678901)"),
     z.literal(""),
   ]).optional(),
-  adresseRue:            z.string().optional(),
-  codePostal:            z.union([
-    z.string().regex(/^\d{5}$/, "Code postal invalide"),
-    z.literal(""),
-  ]).optional(),
-  ville:                 z.string().optional(),
+  adresseRue:            z.string().min(1, "L'adresse est obligatoire sur une facture (art. L441-9)"),
+  codePostal:            z.string().regex(/^\d{5}$/, "Code postal invalide"),
+  ville:                 z.string().min(1, "La ville est obligatoire"),
   telephone:             z.string().optional(),
   emailPro:              z.union([
     z.string().email("Email invalide"),
@@ -308,7 +304,7 @@ export default function ParametresPage() {
                 </div>
               </Field>
 
-              <Field label="SIRET" hint="14 chiffres" error={errors.siret?.message}>
+              <Field label="SIRET" required hint="14 chiffres — obligatoire sur les factures" error={errors.siret?.message}>
                 <Input {...register("siret")} placeholder="12345678901234" maxLength={14} />
               </Field>
 
@@ -317,16 +313,16 @@ export default function ParametresPage() {
               </Field>
 
               <div className="sm:col-span-2">
-                <Field label="Adresse (rue)" error={errors.adresseRue?.message}>
+                <Field label="Adresse (rue)" required error={errors.adresseRue?.message}>
                   <Input {...register("adresseRue")} placeholder="12 rue de la Paix" />
                 </Field>
               </div>
 
-              <Field label="Code postal" error={errors.codePostal?.message}>
+              <Field label="Code postal" required error={errors.codePostal?.message}>
                 <Input {...register("codePostal")} placeholder="75001" maxLength={5} />
               </Field>
 
-              <Field label="Ville" error={errors.ville?.message}>
+              <Field label="Ville" required error={errors.ville?.message}>
                 <Input {...register("ville")} placeholder="Paris" />
               </Field>
 

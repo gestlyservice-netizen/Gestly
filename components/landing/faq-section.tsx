@@ -20,7 +20,7 @@ const faqs = [
   },
   {
     q: "Est-ce conforme à la facturation électronique 2027 ?",
-    a: "Oui. Gestly génère des factures au format Factur-X, conforme aux obligations de facturation électronique qui entreront en vigueur en 2027 pour toutes les entreprises françaises. Votre conformité est assurée dès maintenant.",
+    a: "Pas encore. Gestly génère aujourd'hui des devis et factures PDF professionnels avec toutes les mentions légales obligatoires. Le format Factur-X requis par la réforme de facturation électronique (obligatoire pour toutes les entreprises d'ici 2027) n'est pas encore disponible — nous vous informerons dès son intégration.",
   },
   {
     q: "Puis-je annuler à tout moment ?",
