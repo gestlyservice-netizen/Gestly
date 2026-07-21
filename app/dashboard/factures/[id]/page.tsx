@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   ChevronLeft, Loader2, User, Calendar,
-  FileText, Download, Send, CheckCircle,
+  FileText, Download, Send, CheckCircle, Undo2,
 } from "lucide-react";
 import { generateFacturePDF } from "@/lib/generate-pdf";
 import {
@@ -52,6 +52,15 @@ interface Facture {
   } | null;
 }
 
+interface Avoir {
+  id:        string;
+  number:    string;
+  type:      string;
+  reason:    string;
+  totalTTC:  number;
+  createdAt: string;
+}
+
 /* ── Helpers ─────────────────────────────────────────────── */
 const fmt = (n: number) =>
   n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -85,6 +94,16 @@ export default function FactureDetailPage() {
   const [sending,     setSending]     = useState(false);
   const [sendError,   setSendError]   = useState<string | null>(null);
 
+  const [avoirs,       setAvoirs]       = useState<Avoir[]>([]);
+  const [avoirOpen,    setAvoirOpen]    = useState(false);
+  const [avoirType,    setAvoirType]    = useState<"total" | "partiel">("total");
+  const [avoirReason,  setAvoirReason]  = useState("");
+  const [avoirDesc,    setAvoirDesc]    = useState("");
+  const [avoirAmount,  setAvoirAmount]  = useState("");
+  const [avoirTva,     setAvoirTva]     = useState("20");
+  const [creatingAvoir, setCreatingAvoir] = useState(false);
+  const [avoirError,   setAvoirError]   = useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -100,6 +119,14 @@ export default function FactureDetailPage() {
       })
       .catch(() => setError("Impossible de charger la facture"))
       .finally(() => setLoading(false));
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    fetch(`/api/factures/${id}/avoir`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setAvoirs(data as Avoir[]))
+      .catch(() => {});
   }, [id]);
 
   const notify = (msg: string, isError = false) => {
@@ -141,6 +168,51 @@ export default function FactureDetailPage() {
       setSendError("Erreur réseau lors de l'envoi");
     } finally {
       setSending(false);
+    }
+  };
+
+  const openAvoirDialog = () => {
+    setAvoirType("total");
+    setAvoirReason("");
+    setAvoirDesc("");
+    setAvoirAmount("");
+    setAvoirTva("20");
+    setAvoirError(null);
+    setAvoirOpen(true);
+  };
+
+  const createAvoir = async () => {
+    if (!facture) return;
+    setCreatingAvoir(true);
+    setAvoirError(null);
+    try {
+      const payload =
+        avoirType === "total"
+          ? { type: "total", reason: avoirReason }
+          : {
+              type: "partiel",
+              reason: avoirReason,
+              description: avoirDesc,
+              unitPriceHT: Number(avoirAmount),
+              tvaRate: Number(avoirTva),
+            };
+      const r = await fetch(`/api/factures/${id}/avoir`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+      const data = await r.json();
+      if (r.ok) {
+        setAvoirs((prev) => [data as Avoir, ...prev]);
+        setAvoirOpen(false);
+        notify("Avoir créé");
+      } else {
+        setAvoirError((data as { error?: string }).error ?? "Échec de la création de l'avoir");
+      }
+    } catch {
+      setAvoirError("Erreur réseau");
+    } finally {
+      setCreatingAvoir(false);
     }
   };
 
@@ -262,6 +334,14 @@ export default function FactureDetailPage() {
           >
             <Send className="h-4 w-4" />
             Envoyer par email
+          </button>
+
+          <button
+            onClick={openAvoirDialog}
+            className="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-sm font-medium px-3.5 py-2 rounded-lg transition-colors"
+          >
+            <Undo2 className="h-4 w-4" />
+            Créer un avoir
           </button>
 
           {facture.status !== "payee" && (
@@ -408,6 +488,122 @@ export default function FactureDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Avoirs ─────────────────────────────────────────── */}
+      {avoirs.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+            <Undo2 className="h-4 w-4 text-slate-400" />
+            <h2 className="text-sm font-semibold text-slate-700">Avoirs émis sur cette facture</h2>
+          </div>
+          <ul className="divide-y divide-slate-50">
+            {avoirs.map((a) => (
+              <li key={a.id} className="px-5 py-3.5 flex items-center justify-between text-sm">
+                <div>
+                  <span className="font-mono font-semibold text-slate-800">{a.number}</span>
+                  <span className="text-slate-400 ml-2">
+                    {a.type === "total" ? "Avoir total" : "Avoir partiel"} · {fmtDate(a.createdAt)}
+                  </span>
+                  <p className="text-xs text-slate-400 mt-0.5">{a.reason}</p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="font-semibold text-slate-800 tabular-nums">-{fmt(a.totalTTC)}&nbsp;€</span>
+                  <a
+                    href={`/api/avoirs/${a.id}/pdf`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-600 hover:underline text-xs font-medium"
+                  >
+                    PDF
+                  </a>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ── Dialog création avoir ─────────────────────────── */}
+      <Dialog open={avoirOpen} onOpenChange={setAvoirOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Créer un avoir</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAvoirType("total")}
+                className={`flex-1 text-sm font-medium py-2 rounded-lg border transition-colors ${
+                  avoirType === "total"
+                    ? "bg-blue-50 border-blue-300 text-blue-700"
+                    : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                }`}
+              >
+                Avoir total
+              </button>
+              <button
+                type="button"
+                onClick={() => setAvoirType("partiel")}
+                className={`flex-1 text-sm font-medium py-2 rounded-lg border transition-colors ${
+                  avoirType === "partiel"
+                    ? "bg-blue-50 border-blue-300 text-blue-700"
+                    : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                }`}
+              >
+                Avoir partiel
+              </button>
+            </div>
+
+            {avoirType === "partiel" && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Description de la ligne créditée</Label>
+                  <Input value={avoirDesc} onChange={(e) => setAvoirDesc(e.target.value)} placeholder="Ex : Remise commerciale" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Montant HT</Label>
+                    <Input type="number" min="0" step="0.01" value={avoirAmount} onChange={(e) => setAvoirAmount(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>TVA %</Label>
+                    <Input type="number" min="0" step="0.1" value={avoirTva} onChange={(e) => setAvoirTva(e.target.value)} />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="space-y-1.5">
+              <Label>Raison de l&apos;avoir</Label>
+              <Textarea
+                rows={3}
+                value={avoirReason}
+                onChange={(e) => setAvoirReason(e.target.value)}
+                placeholder="Ex : Erreur de tarification, geste commercial, prestation annulée…"
+              />
+            </div>
+            <p className="text-xs text-slate-400">
+              La facture d&apos;origine n&apos;est jamais modifiée. L&apos;avoir vient s&apos;y référencer et sera déduit de votre chiffre d&apos;affaires.
+            </p>
+            {avoirError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {avoirError}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={createAvoir}
+              disabled={creatingAvoir || !avoirReason.trim() || (avoirType === "partiel" && (!avoirDesc.trim() || !avoirAmount))}
+              className="inline-flex items-center gap-2"
+            >
+              {creatingAvoir ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
+              {creatingAvoir ? "Création…" : "Créer l'avoir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Dialog envoi email ────────────────────────────── */}
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>

@@ -33,6 +33,7 @@ export default async function DashboardPage() {
     enAttenteCount,
     signesMoisCount,
     caFactureMoisAgg,
+    avoirsMoisAgg,
     impayesAgg,
     derniersDevis,
     facturesEnAttente,
@@ -44,6 +45,10 @@ export default async function DashboardPage() {
       where: { userId: user.id, status: "signe", signedAt: { gte: startOfMonth } },
     }),
     prisma.facture.aggregate({
+      where: { userId: user.id, createdAt: { gte: startOfMonth } },
+      _sum: { totalTTC: true },
+    }),
+    prisma.avoir.aggregate({
       where: { userId: user.id, createdAt: { gte: startOfMonth } },
       _sum: { totalTTC: true },
     }),
@@ -99,8 +104,8 @@ export default async function DashboardPage() {
     },
     {
       title:       "CA facturé ce mois",
-      value:       `${fmt(caFactureMoisAgg._sum.totalTTC)} €`,
-      description: "TTC factures émises",
+      value:       `${fmt((caFactureMoisAgg._sum.totalTTC ?? 0) - (avoirsMoisAgg._sum.totalTTC ?? 0))} €`,
+      description: "TTC factures émises, net des avoirs",
       icon:        TrendingUp,
       iconBg:      "bg-blue-50",
       iconColor:   "text-blue-600",
