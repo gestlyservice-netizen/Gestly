@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { generateText } from "ai";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { isAiConfigured } from "@/lib/ai/config";
+import { isRateLimited } from "@/lib/rate-limit";
 
 // Amélioration de message côté serveur uniquement — aucune clé exposée au
 // client. Désactivée tant qu'aucun fournisseur IA n'est configuré (voir
@@ -18,6 +19,9 @@ export async function POST(request: Request) {
   }
   if (!isAiConfigured()) {
     return NextResponse.json({ error: "Fonctionnalité IA non configurée" }, { status: 503 });
+  }
+  if (isRateLimited(`ai-improve:${user.id}`, 20, 60 * 60 * 1000)) {
+    return NextResponse.json({ error: "Trop de requêtes IA, réessayez dans une heure" }, { status: 429 });
   }
 
   const body: unknown = await request.json().catch(() => null);
