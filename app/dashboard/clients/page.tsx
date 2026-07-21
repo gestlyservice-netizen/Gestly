@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Pencil, Trash2, Users, Loader2, MessageCircle, Mail, Phone } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, Loader2, MessageCircle, Mail, Phone, Search, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -84,6 +84,8 @@ export default function ClientsPage() {
   const [submitting, setSubmitting]         = useState(false);
   const [deleting, setDeleting]             = useState(false);
   const [apiError, setApiError]             = useState<string | null>(null);
+  const [search, setSearch]                 = useState("");
+  const [channelFilter, setChannelFilter]   = useState<"all" | ContactChannel>("all");
 
   const {
     register,
@@ -178,6 +180,19 @@ export default function ClientsPage() {
     }
   };
 
+  /* Filtrage recherche + canal (côté client, volume par artisan raisonnable) */
+  const q = search.trim().toLowerCase();
+  const filteredClients = clients.filter((c) => {
+    const matchesSearch =
+      !q ||
+      c.name.toLowerCase().includes(q) ||
+      (c.email ?? "").toLowerCase().includes(q) ||
+      (c.phone ?? "").toLowerCase().includes(q) ||
+      (c.address ?? "").toLowerCase().includes(q);
+    const matchesChannel = channelFilter === "all" || c.preferredContact === channelFilter;
+    return matchesSearch && matchesChannel;
+  });
+
   /* ── Render ─────────────────────────────────────────── */
   return (
     <div className="space-y-6">
@@ -198,6 +213,44 @@ export default function ClientsPage() {
         </button>
       </div>
 
+      {/* Recherche + filtres */}
+      {!loading && clients.length > 0 && (
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher par nom, email, téléphone, adresse…"
+              className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-9 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {(["all", "whatsapp", "email", "telephone"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setChannelFilter(v)}
+                className={`text-xs font-medium px-3 py-2 rounded-lg border transition-colors ${
+                  channelFilter === v
+                    ? "bg-blue-50 border-blue-300 text-blue-700"
+                    : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                }`}
+              >
+                {v === "all" ? "Tous" : v === "whatsapp" ? "WhatsApp" : v === "email" ? "Email" : "Téléphone"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
         {loading ? (
@@ -214,6 +267,10 @@ export default function ClientsPage() {
               Cliquez sur &ldquo;Ajouter un client&rdquo; pour commencer
             </p>
           </div>
+        ) : filteredClients.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-sm font-medium text-slate-600">Aucun client ne correspond à votre recherche</p>
+          </div>
         ) : (
           <Table>
             <TableHeader>
@@ -227,7 +284,7 @@ export default function ClientsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {clients.map((client) => {
+              {filteredClients.map((client) => {
                 const channel = CHANNEL_BADGE[(client.preferredContact as ContactChannel) ?? "email"] ?? CHANNEL_BADGE.email;
                 return (
                   <TableRow key={client.id}>
