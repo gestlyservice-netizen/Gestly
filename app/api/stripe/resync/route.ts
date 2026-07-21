@@ -5,6 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { subscriptionToUserUpdate } from "@/lib/stripe-sync";
+import { createNotificationOnce } from "@/lib/notifications";
 
 const ADMIN_EMAIL = "gestlyservice@gmail.com";
 
@@ -31,7 +32,10 @@ export async function GET(request: Request) {
 
   const users = await prisma.user.findMany({
     where: { stripeSubscriptionId: { not: null } },
-    select: { id: true, stripeSubscriptionId: true, subscriptionStatus: true },
+    select: {
+      id: true, stripeSubscriptionId: true, subscriptionStatus: true,
+      trialEndsAt: true, stripeCurrentPeriodEnd: true, stripeCancelAtPeriodEnd: true,
+    },
   });
 
   const checked = users.length;
@@ -64,6 +68,25 @@ export async function GET(request: Request) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${user.id}: ${msg}`);
       console.error(`[stripe/resync] user ${user.id}:`, err);
+    }
+
+    // Notification "abonnement bientôt expiré" : essai qui se termine bientôt,
+    // ou résiliation programmée en fin de période — une seule fois par échéance.
+    const soonDate = user.subscriptionStatus === "trialing" ? user.trialEndsAt
+      : user.stripeCancelAtPeriodEnd ? user.stripeCurrentPeriodEnd
+      : null;
+    if (soonDate) {
+      const daysLeft = Math.ceil((soonDate.getTime() - Date.now()) / 86_400_000);
+      if (daysLeft >= 0 && daysLeft <= 3) {
+        await createNotificationOnce(
+          user.id,
+          "abonnement_expire_bientot",
+          user.subscriptionStatus === "trialing"
+            ? `Votre essai gratuit se termine dans ${daysLeft} jour(s).`
+            : `Votre abonnement se termine dans ${daysLeft} jour(s) (résiliation programmée).`,
+          `/dashboard/parametres/abonnement?echeance=${soonDate.toISOString().slice(0, 10)}`
+        );
+      }
     }
   }
 

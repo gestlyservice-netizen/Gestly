@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { createNotification } from "@/lib/notifications";
 
 async function getDevisForUser(id: string, userId: string) {
   return prisma.devis.findFirst({
@@ -53,6 +54,15 @@ export async function PATCH(
     },
     include: { client: true, lines: true },
   });
+
+  if (status === "signe" && devis.status !== "signe") {
+    await createNotification(
+      user.id,
+      "devis_accepte",
+      `Le devis ${devis.number} a été marqué comme signé par ${updated.client.name}.`,
+      `/dashboard/devis/${devis.id}`
+    );
+  }
 
   return NextResponse.json(updated);
 }

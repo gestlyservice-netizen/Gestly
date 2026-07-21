@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { sendSMS } from "@/lib/sms";
 import { getOvhSmsBalance } from "@/lib/ovh-balance";
 import { renderMessage } from "./messages";
+import { createNotification, createNotificationOnce } from "@/lib/notifications";
 
 const MAX_ATTEMPTS = 5;
 const MIN_SMS_CREDITS = 10;
@@ -59,6 +60,13 @@ export async function runRelancesCheck(): Promise<RelancesSummary> {
         joursRetard >= settings.delaiJ2 ? 2 :
         joursRetard >= settings.delaiJ1 ? 1 : 0;
       if (niveau === 0) continue;
+
+      await createNotificationOnce(
+        user.id,
+        "facture_en_retard",
+        `La facture ${facture.number} est en retard de paiement (${joursRetard} jour(s)).`,
+        `/dashboard/factures/${facture.id}`
+      );
 
       const vars = {
         clientName: facture.client.name,
@@ -132,6 +140,12 @@ export async function runRelancesCheck(): Promise<RelancesSummary> {
             create: { factureId: facture.id, niveau, canal, statut: "envoyee", attempts: 1 },
             update: { statut: "envoyee", erreur: null, attempts: { increment: 1 }, envoyeeAt: new Date() },
           });
+          await createNotification(
+            user.id,
+            "relance_envoyee",
+            `Relance niveau ${niveau} envoyée par ${canal} pour la facture ${facture.number}.`,
+            `/dashboard/factures/${facture.id}`
+          );
           summary.sent++;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -140,6 +154,12 @@ export async function runRelancesCheck(): Promise<RelancesSummary> {
             create: { factureId: facture.id, niveau, canal, statut: "echec", erreur: msg, attempts: 1 },
             update: { statut: "echec", erreur: msg, attempts: { increment: 1 }, envoyeeAt: new Date() },
           });
+          await createNotification(
+            user.id,
+            "relance_echouee",
+            `Échec de la relance niveau ${niveau} par ${canal} pour la facture ${facture.number} : ${msg}`,
+            `/dashboard/factures/${facture.id}`
+          );
           summary.failed++;
           console.error(`[relances] Échec facture ${facture.id} niveau ${niveau} canal ${canal}:`, msg);
         }

@@ -1,8 +1,9 @@
 "use client";
 
 import { UserButton, useUser } from "@clerk/nextjs";
-import { Menu, Bell } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { NotificationsBell } from "@/components/layouts/notifications-bell";
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -33,9 +34,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
 
       {/* Right: notifications + user */}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="relative text-slate-600">
-          <Bell className="h-5 w-5" />
-        </Button>
+        <NotificationsBell />
         <div className="h-6 w-px bg-slate-200" />
         <UserButton
           afterSignOutUrl="/"

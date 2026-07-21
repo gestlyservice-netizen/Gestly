@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { toCustomerId, subscriptionToUserUpdate } from "@/lib/stripe-sync";
+import { createNotification } from "@/lib/notifications";
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
@@ -86,6 +87,15 @@ async function handleEvent(event: Stripe.Event) {
           where: { stripeCustomerId: cid },
           data: { subscriptionStatus: "past_due" },
         });
+        const user = await prisma.user.findFirst({ where: { stripeCustomerId: cid } });
+        if (user) {
+          await createNotification(
+            user.id,
+            "paiement_echoue",
+            "Le paiement de votre abonnement Gestly a échoué. Mettez à jour votre moyen de paiement pour éviter une suspension.",
+            "/dashboard/parametres/abonnement"
+          );
+        }
       }
       break;
     }
