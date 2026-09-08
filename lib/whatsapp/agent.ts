@@ -1,7 +1,15 @@
+import type { WhatsappMessage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { claimJob } from "@/lib/whatsapp/job-queue";
 import { sendWhatsappText } from "@/lib/whatsapp/send";
 import { processTextMessage } from "@/lib/whatsapp/conversation-turn";
+import { resolveVoiceMessageText } from "@/lib/whatsapp/voice-message";
+import {
+  buildVoiceMediaNotFoundReply,
+  buildVoiceUnsupportedFormatReply,
+  buildVoiceTooLargeReply,
+  buildVoiceEmptyReply,
+} from "@/lib/whatsapp/reply-builder";
 
 // Point d'entrée unique du traitement métier des jobs WhatsApp. Le webhook
 // ne fait qu'y déléguer — aucune logique métier n'existe ailleurs. Toute la
@@ -51,10 +59,7 @@ export async function processWhatsappJob(jobId: string): Promise<boolean> {
       throw new Error("Conversation invalide ou non identifiée (utilisateur manquant)");
     }
 
-    const replyText =
-      message.type === "audio"
-        ? buildAudioPlaceholderReply()
-        : await processTextMessage(conversation.id, conversation.userId, message.content);
+    const replyText = await buildReply(message, conversation.id, conversation.userId);
 
     await sendWhatsappText(conversation.phoneNumber, replyText);
 
@@ -88,9 +93,24 @@ export async function processWhatsappJob(jobId: string): Promise<boolean> {
   }
 }
 
-function buildAudioPlaceholderReply(): string {
-  return (
-    "Message vocal bien reçu ✅\n\n" +
-    "La transcription automatique n'est pas encore activée — cette fonctionnalité arrive à une prochaine étape."
-  );
+// Point d'entrée unique pour produire la réponse d'un message entrant,
+// texte ou vocal. Une fois transcrit, un message vocal devient une entrée
+// textuelle ordinaire pour processTextMessage — jamais un second agent, ni
+// de logique métier parallèle spécifique à l'audio au-delà de la
+// résolution de son texte.
+async function buildReply(message: WhatsappMessage, conversationId: string, userId: string): Promise<string> {
+  if (message.type !== "audio") {
+    return processTextMessage(conversationId, userId, message.content);
+  }
+
+  const voice = await resolveVoiceMessageText(message, userId);
+
+  if (voice.kind === "transcribed") {
+    return processTextMessage(conversationId, userId, voice.text);
+  }
+
+  if (voice.reason === "media_not_found") return buildVoiceMediaNotFoundReply();
+  if (voice.reason === "unsupported_format") return buildVoiceUnsupportedFormatReply();
+  if (voice.reason === "too_large") return buildVoiceTooLargeReply();
+  return buildVoiceEmptyReply();
 }

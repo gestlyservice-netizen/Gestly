@@ -8,6 +8,23 @@ import type { RawExtraction } from "@/lib/whatsapp/pending-devis";
 // qui part sur WhatsApp. Ça élimine tout risque d'invention dans la réponse
 // elle-même, pas seulement dans les données extraites.
 
+// ── Réponses liées aux messages vocaux (étape 7) ─────────────────────────
+export function buildVoiceMediaNotFoundReply(): string {
+  return "Je n'ai pas réussi à récupérer votre message vocal. Vous pouvez réessayer de l'envoyer, ou écrire votre message directement.";
+}
+
+export function buildVoiceUnsupportedFormatReply(): string {
+  return "Ce format de message vocal n'est pas pris en charge. Pouvez-vous écrire votre message directement ?";
+}
+
+export function buildVoiceTooLargeReply(): string {
+  return "Votre message vocal est trop volumineux. Pouvez-vous en renvoyer un plus court, ou écrire votre message ?";
+}
+
+export function buildVoiceEmptyReply(): string {
+  return "Je n'ai rien entendu dans votre message vocal. Pouvez-vous le renvoyer, ou écrire votre message directement ?";
+}
+
 export function buildOffTopicReply(): string {
   return "Je n'ai pas repéré de demande de devis dans ce message. Décrivez-moi le client et les prestations quand vous voulez, je m'en occupe.";
 }

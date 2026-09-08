@@ -130,11 +130,16 @@ async function handleIncomingMessage(message: MetaMessageT, gestlyNumber: string
     });
   }
 
+  // Pour un message vocal, le texte n'existe pas encore : content reste
+  // vide, les informations utiles vivent dans des champs dédiés (mediaId,
+  // mimeType) plutôt que d'être encodées de façon ambiguë dans content.
+  // La transcription elle-même n'a jamais lieu ici (rôle de l'orchestrateur,
+  // cf. lib/whatsapp/voice-message.ts).
   const content =
     message.type === "text"
       ? (message.text?.body ?? "")
       : message.type === "audio"
-        ? `[audio:${message.audio?.id ?? "inconnu"}]`
+        ? ""
         : `[non_supporte:${message.type}]`;
 
   let whatsappMessage;
@@ -146,6 +151,13 @@ async function handleIncomingMessage(message: MetaMessageT, gestlyNumber: string
         type: message.type,
         externalId: message.id,
         content,
+        ...(message.type === "audio"
+          ? {
+              mediaId: message.audio?.id ?? null,
+              mimeType: message.audio?.mime_type ?? null,
+              transcriptionStatus: "pending",
+            }
+          : {}),
       },
     });
   } catch (err) {

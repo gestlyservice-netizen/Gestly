@@ -405,6 +405,20 @@ model WhatsappMessage {
   content        String   @db.Text
   createdAt      DateTime @default(now())
 
+  // ── Champs dédiés aux messages vocaux (type="audio") ──────────────────
+  // Volontairement séparés de `content` plutôt que d'y encoder plusieurs
+  // informations sous forme de texte ambigu (ex. "[audio:ID]").
+  mediaId             String? // identifiant média Meta, avant téléchargement
+  mimeType            String? // type MIME réel constaté au téléchargement
+  durationSeconds     Int? // durée audio arrondie, si fournie par le STT
+  transcription       String? @db.Text
+  // pending | done | failed — uniquement pertinent pour type="audio".
+  // "pending" = pas encore transcrit ; permet de savoir sur un retry si la
+  // transcription a déjà réussi (jamais rappeler l'API dans ce cas).
+  transcriptionStatus String?
+  transcriptionModel  String? // modèle utilisé — pour mesurer coûts/usage réels
+  transcriptionMs     Int? // temps de traitement de la transcription (ms)
+
   conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   job          WhatsappJob?
 }

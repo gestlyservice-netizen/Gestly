@@ -15,6 +15,17 @@ export function getWhatsappExtractionModel(): string {
   return process.env.WHATSAPP_AI_MODEL?.trim() || DEFAULT_WHATSAPP_EXTRACTION_MODEL;
 }
 
+// Modèle utilisé pour transcrire les messages vocaux WhatsApp
+// (lib/whatsapp/transcription.ts). Whisper reste le choix le plus établi et
+// le plus largement documenté pour la transcription audio via OpenAI —
+// changer pour un modèle plus récent (ex. gpt-4o-transcribe) se fait
+// uniquement via WHATSAPP_TRANSCRIPTION_MODEL, sans toucher au workflow.
+export const DEFAULT_WHATSAPP_TRANSCRIPTION_MODEL = "openai/whisper-1";
+
+export function getWhatsappTranscriptionModel(): string {
+  return process.env.WHATSAPP_TRANSCRIPTION_MODEL?.trim() || DEFAULT_WHATSAPP_TRANSCRIPTION_MODEL;
+}
+
 // Taux de TVA appliqué par défaut quand l'artisan ne le précise pas. Ce
 // n'est pas un réglage par compte aujourd'hui (Settings n'a pas de champ TVA
 // par défaut) — c'est le standard déjà utilisé partout ailleurs dans Gestly
