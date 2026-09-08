@@ -91,11 +91,12 @@ model Devis {
   signatureUserAgent String?
   signatureHash      String?
 
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  client   Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  lines    DevisLine[]
-  factures Facture[]
-  relances RelanceDevis[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client       Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lines        DevisLine[]
+  factures     Facture[]
+  relances     RelanceDevis[]
+  whatsappSend WhatsappSend?
 }
 
 model DevisLine {
@@ -366,10 +367,12 @@ model WhatsappConversation {
   userId        String?
   phoneNumber   String // numéro E.164 de l'expéditeur (l'artisan)
   // idle | collecting | awaiting_creation_confirmation | creating |
-  // awaiting_send_confirmation | opted_out
-  // "creating" est un état transitoire réclamé atomiquement (cf.
-  // lib/whatsapp/confirm-creation.ts) pour garantir qu'une confirmation ne
-  // produit jamais deux créations, même en cas de concurrence ou de retry.
+  // awaiting_send_confirmation | sending | opted_out
+  // "creating" et "sending" sont des états transitoires réclamés
+  // atomiquement (cf. lib/whatsapp/confirm-creation.ts et
+  // lib/whatsapp/send-devis.ts) pour garantir qu'une confirmation ne
+  // produit jamais deux créations/envois, même en cas de concurrence ou de
+  // retry.
   state           String    @default("idle")
   pendingDevis    Json? // brouillon structuré en cours de collecte/validation
   // Devis réellement créé pour cette conversation, une fois la création
@@ -387,6 +390,7 @@ model WhatsappConversation {
 
   user     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages WhatsappMessage[]
+  sends    WhatsappSend[]
 
   @@index([phoneNumber])
   @@index([userId])
@@ -420,6 +424,39 @@ model WhatsappJob {
   updatedAt DateTime @updatedAt
 
   message WhatsappMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+// Suivi dédié et persistant de l'opération d'envoi WhatsApp d'un devis au
+// client final — distinct de Devis.status, qui ne suffit pas à lui seul :
+// l'appel Meta est un effet de bord EXTERNE à Postgres, qu'aucune
+// transaction locale ne peut annuler. Ce modèle est la seule source de
+// vérité sur "a-t-on déjà contacté Meta pour ce devis, et avec quel
+// résultat" — c'est ce qui permet de savoir, après un crash ou un retry,
+// si un message a déjà été accepté (externalMessageId renseigné) sans
+// jamais avoir à renvoyer le document une seconde fois.
+//
+// devisId est @unique : un seul WhatsappSend par devis pour toute la durée
+// de vie de l'application — la contrainte d'unicité de la base est la
+// dernière ligne de défense contre un double envoi, même en cas de bug
+// applicatif dans la logique de réclamation.
+model WhatsappSend {
+  id                String   @id @default(cuid())
+  devisId           String   @unique
+  conversationId    String
+  status            String   @default("pending") // pending | processing | success | failed
+  attempts          Int      @default(0)
+  // wamid Meta — preuve d'envoi. Renseigné UNIQUEMENT après confirmation
+  // explicite de Meta, jamais avant. @unique en plus du dédoublonnage
+  // applicatif : deux WhatsappSend ne peuvent jamais partager le même wamid.
+  externalMessageId String?  @unique
+  lastError         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  devis        Devis                @relation(fields: [devisId], references: [id], onDelete: Cascade)
+  conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([status])
 }

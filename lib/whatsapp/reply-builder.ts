@@ -52,6 +52,35 @@ export function buildInsufficientDataForCreationReply(missing: string[]): string
   return `Il manque encore des informations pour créer ce devis : ${missing.join(", ")}.`;
 }
 
+// ── Réponses de l'étape 6 (envoi au client) ──────────────────────────────
+export function buildSendConfirmationQuestion(number: string, clientName: string, phone: string): string {
+  return `Voulez-vous envoyer le devis ${number} à ${clientName} sur le numéro ${phone} ?`;
+}
+
+export function buildSendAmbiguousReply(number: string, clientName: string, phone: string): string {
+  return `Je n'ai pas compris si c'est oui ou non. ${buildSendConfirmationQuestion(number, clientName, phone)}`;
+}
+
+export function buildSendDeclinedReply(): string {
+  return "D'accord, je n'envoie rien pour l'instant. Le devis reste enregistré — dites-moi quand vous voulez que je l'envoie.";
+}
+
+export function buildDevisSentReply(number: string, clientName: string): string {
+  return `Le devis ${number} a bien été envoyé à ${clientName} par WhatsApp ✅`;
+}
+
+export function buildCannotSendReply(reason: "no_phone" | "invalid_phone" | "opted_out" | "wrong_owner"): string {
+  const base = "Je ne peux pas envoyer ce devis par WhatsApp pour l'instant : ";
+  if (reason === "no_phone") return base + "ce client n'a pas de numéro de téléphone enregistré. Le devis reste bien créé, vous pouvez l'envoyer autrement.";
+  if (reason === "invalid_phone") return base + "le numéro enregistré pour ce client ne semble pas valide. Le devis reste bien créé.";
+  if (reason === "opted_out") return base + "ce client s'est désinscrit des messages WhatsApp. Le devis reste bien créé.";
+  return "Une erreur interne empêche l'envoi de ce devis. Le devis reste bien créé, contactez le support si ça persiste.";
+}
+
+export function buildSendFailedReply(): string {
+  return "L'envoi a échoué, je vais réessayer automatiquement. Le devis reste bien créé, rien n'est perdu.";
+}
+
 export function buildClarificationReply(pendingDevis: PendingDevis): string {
   const missing = computeMissingRequirements(pendingDevis);
   const points: string[] = [];

@@ -3,20 +3,30 @@ import { prisma } from "@/lib/prisma";
 import { extractDevisInfo } from "@/lib/whatsapp/extraction";
 import { resolveClient } from "@/lib/whatsapp/client-resolution";
 import { confirmDevisCreation } from "@/lib/whatsapp/confirm-creation";
+import { sendDevisToClient } from "@/lib/whatsapp/send-devis";
+import { normalizePhoneE164 } from "@/lib/phone";
 import {
   buildReplyForIntent,
   buildAmbiguousConfirmationReply,
   buildCreationDeclinedReply,
   buildDevisCreatedReply,
   buildInsufficientDataForCreationReply,
+  buildSendConfirmationQuestion,
+  buildSendAmbiguousReply,
+  buildSendDeclinedReply,
+  buildDevisSentReply,
+  buildCannotSendReply,
+  buildSendFailedReply,
 } from "@/lib/whatsapp/reply-builder";
 import { emptyPendingDevis, applyExtractionToPendingDevis, type PendingDevis } from "@/lib/whatsapp/pending-devis";
 import { DEFAULT_TVA_RATE } from "@/lib/ai/config";
 
+const SENDING_STATES = new Set(["awaiting_send_confirmation", "sending"]);
+
 // Orchestration complète d'un tour de conversation texte : comprendre,
-// compléter, confirmer la création, créer le devis, confirmer l'envoi.
-// L'envoi lui-même (génération PDF + appel WhatsApp vers le client) reste
-// entièrement hors de ce fichier — c'est l'étape 6.
+// compléter, confirmer la création, créer le devis, confirmer l'envoi,
+// générer le PDF et envoyer au client. Chaque étape ne progresse que sur
+// confirmation explicite et non ambiguë de l'artisan.
 export async function processTextMessage(
   conversationId: string,
   userId: string,
@@ -27,18 +37,18 @@ export async function processTextMessage(
   const currentPendingDevis: PendingDevis =
     (conversationRow.pendingDevis as unknown as PendingDevis) ?? emptyPendingDevis();
 
-  // Idempotence de lecture : si un devis a déjà été créé pour cette
-  // conversation et qu'on attend la confirmation d'envoi, on ne relance
-  // jamais l'extraction/la création — on rappelle simplement l'état réel,
-  // quel que soit le message reçu entre-temps (rejeu, double confirmation,
-  // nouveau message avant que l'artisan ait vu la réponse précédente...).
-  if (conversationRow.state === "awaiting_send_confirmation" && conversationRow.lastCreatedDevisId) {
+  // Idempotence de lecture stricte : si le devis lié à cette conversation
+  // est déjà réellement envoyé, on ne relance jamais rien (extraction,
+  // création, envoi) — on rappelle juste la confirmation déjà connue, quel
+  // que soit le message reçu (rejeu, message en double, artisan qui répond
+  // encore après coup...).
+  if (conversationRow.lastCreatedDevisId) {
     const devis = await prisma.devis.findUnique({
       where: { id: conversationRow.lastCreatedDevisId },
       include: { client: true },
     });
-    if (devis) {
-      return buildDevisCreatedReply(devis.number, devis.client.name, devis.totalTTC);
+    if (devis?.status === "envoye") {
+      return buildDevisSentReply(devis.number, devis.client.name);
     }
   }
 
@@ -56,7 +66,47 @@ export async function processTextMessage(
   // conversation restent intacts pour un retry ultérieur.
   const raw = await extractDevisInfo({ message: messageContent, recentHistory, currentPendingDevis }, opts);
 
-  // ── Gestion spécifique de la confirmation de création ──────────────────
+  // ── Gestion spécifique de la confirmation d'ENVOI (étape 6) ────────────
+  if (SENDING_STATES.has(conversationRow.state) && conversationRow.lastCreatedDevisId) {
+    const devisId = conversationRow.lastCreatedDevisId;
+
+    if (raw.intent === "confirmation" && raw.reponseConfirmation === "oui") {
+      const outcome = await sendDevisToClient(conversationId, userId);
+
+      if (outcome.kind === "sent" || outcome.kind === "already_sent") {
+        return buildDevisSentReply(outcome.number, outcome.clientName);
+      }
+      if (outcome.kind === "cannot_send") {
+        return buildCannotSendReply(outcome.reason);
+      }
+      if (outcome.kind === "failed") {
+        return buildSendFailedReply();
+      }
+      // "not_claimed" : un autre traitement a déjà la main ou a déjà conclu
+      // — on relit l'état réel sans jamais retenter d'appel Meta ici.
+      const freshDevis = await prisma.devis.findUnique({ where: { id: devisId }, include: { client: true } });
+      if (freshDevis?.status === "envoye") return buildDevisSentReply(freshDevis.number, freshDevis.client.name);
+      return buildSendFailedReply();
+    }
+
+    if (raw.intent === "confirmation" && raw.reponseConfirmation === "non") {
+      // Le devis reste créé, on sort simplement de la tentative d'envoi —
+      // l'artisan pourra redemander l'envoi plus tard (état inchangé).
+      return buildSendDeclinedReply();
+    }
+
+    // Toute autre réponse (ambiguë, hors sujet, nouvelle description...) ne
+    // déclenche jamais d'envoi : on redemande clairement, avec le
+    // destinataire exact pour éviter toute confusion.
+    const devis = await prisma.devis.findUnique({ where: { id: devisId }, include: { client: true } });
+    if (!devis) return buildSendFailedReply();
+    const phone = devis.client.phone ? normalizePhoneE164(devis.client.phone) : "(numéro inconnu)";
+    return raw.intent === "confirmation"
+      ? buildSendAmbiguousReply(devis.number, devis.client.name, phone)
+      : buildSendConfirmationQuestion(devis.number, devis.client.name, phone);
+  }
+
+  // ── Gestion spécifique de la confirmation de CRÉATION (étape 5) ────────
   if (conversationRow.state === "awaiting_creation_confirmation" && raw.intent === "confirmation") {
     if (raw.reponseConfirmation === "oui") {
       const outcome = await confirmDevisCreation(conversationId, userId, currentPendingDevis);

@@ -1,43 +1,32 @@
-// Envoi WhatsApp réutilisable — un seul point d'appel à l'API Graph Meta
-// pour tout le code (orchestrateur, futurs envois de devis/PDF). Ne contient
-// aucune logique métier : juste le transport.
-//
-// L'URL de base est configurable (WHATSAPP_GRAPH_API_BASE_URL) : utile pour
-// changer de version d'API sans redéploiement de code, et permet de router
-// vers un transport simulé en tests sans jamais contacter Meta.
-const GRAPH_API_BASE_URL = process.env.WHATSAPP_GRAPH_API_BASE_URL ?? "https://graph.facebook.com/v18.0";
+import { getGraphConfig } from "@/lib/whatsapp/graph-config";
 
-export async function sendWhatsappText(to: string, body: string): Promise<{ messageId: string | null }> {
-  const token = process.env.WHATSAPP_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+// Envoi WhatsApp réutilisable — seul point d'appel à l'API Graph Meta pour
+// l'envoi de messages (texte ou document). Ne contient aucune logique
+// métier : juste le transport. Le token n'est jamais journalisé.
 
-  if (!token || !phoneNumberId) {
-    throw new Error("Variables d'environnement WhatsApp manquantes (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)");
-  }
+interface MetaSendResponse {
+  messages?: { id: string }[];
+  error?: { message: string; code?: number };
+}
 
-  const res = await fetch(`${GRAPH_API_BASE_URL}/${phoneNumberId}/messages`, {
+async function postMessage(body: Record<string, unknown>): Promise<{ messageId: string | null }> {
+  const { token, phoneNumberId, baseUrl } = getGraphConfig();
+
+  const res = await fetch(`${baseUrl}/${phoneNumberId}/messages`, {
     method: "POST",
-    // Chaque envoi WhatsApp est une action réelle avec effet de bord — jamais
-    // mise en cache. Sans ce réglage explicite, le fetch patché de Next.js
-    // peut mettre en cache/rejouer une réponse déjà vue pour une requête de
-    // même forme, ce qui reviendrait à ne jamais réellement renvoyer certains
-    // messages.
+    // Chaque envoi WhatsApp est une action réelle avec effet de bord —
+    // jamais mise en cache (le fetch patché de Next.js peut sinon rejouer
+    // une réponse déjà vue pour une requête de même forme, ce qui
+    // reviendrait à ne jamais réellement renvoyer certains messages).
     cache: "no-store",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body },
-    }),
+    body: JSON.stringify(body),
   });
 
-  const data = (await res.json().catch(() => null)) as
-    | { messages?: { id: string }[]; error?: { message: string; code?: number } }
-    | null;
+  const data = (await res.json().catch(() => null)) as MetaSendResponse | null;
 
   if (!res.ok) {
     const detail = data?.error ? `[${data.error.code ?? res.status}] ${data.error.message}` : `HTTP ${res.status}`;
@@ -45,4 +34,24 @@ export async function sendWhatsappText(to: string, body: string): Promise<{ mess
   }
 
   return { messageId: data?.messages?.[0]?.id ?? null };
+}
+
+export async function sendWhatsappText(to: string, body: string): Promise<{ messageId: string | null }> {
+  return postMessage({ messaging_product: "whatsapp", to, type: "text", text: { body } });
+}
+
+// Envoi d'un document déjà uploadé (media_id obtenu via
+// lib/whatsapp/media.ts) — utilisé pour l'envoi du PDF de devis au client.
+export async function sendWhatsappDocument(
+  to: string,
+  mediaId: string,
+  filename: string,
+  caption?: string
+): Promise<{ messageId: string | null }> {
+  return postMessage({
+    messaging_product: "whatsapp",
+    to,
+    type: "document",
+    document: { id: mediaId, filename, ...(caption ? { caption } : {}) },
+  });
 }

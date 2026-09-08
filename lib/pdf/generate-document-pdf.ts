@@ -225,3 +225,45 @@ export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
 
   return Buffer.from(doc.output("arraybuffer"));
 }
+
+// Construit les options d'un PDF de devis à partir des enregistrements
+// Prisma et appelle le même moteur que les factures/avoirs (aucun second
+// moteur PDF). Réutilisable par le web (si une route dédiée est ajoutée un
+// jour) et par l'agent WhatsApp (lib/whatsapp/send-devis.ts) — le rendu est
+// donc garanti identique quel que soit le canal.
+export interface DevisForPdf {
+  number: string;
+  createdAt: Date;
+  validityDays: number;
+  notes: string | null;
+  totalHT: number;
+  totalTVA: number;
+  totalTTC: number;
+}
+
+export function generateDevisPdfBuffer(
+  devis: DevisForPdf,
+  lines: DocumentPdfLine[],
+  client: DocumentPdfClient,
+  settings: DocumentPdfSettings | null
+): Buffer {
+  const validUntil = new Date(devis.createdAt);
+  validUntil.setDate(validUntil.getDate() + devis.validityDays);
+  const fmtDate = (d: Date) => d.toLocaleDateString("fr-FR");
+
+  return generateDocumentPdfBuffer({
+    docTypeLabel: "DEVIS",
+    number: devis.number,
+    metaLines: [
+      { label: "Date", value: fmtDate(devis.createdAt) },
+      { label: "Valable jusqu'au", value: fmtDate(validUntil) },
+    ],
+    client,
+    lines,
+    totalHT: devis.totalHT,
+    totalTVA: devis.totalTVA,
+    totalTTC: devis.totalTTC,
+    notes: devis.notes,
+    settings,
+  });
+}
