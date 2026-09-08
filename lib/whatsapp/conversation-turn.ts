@@ -5,6 +5,7 @@ import { resolveClient } from "@/lib/whatsapp/client-resolution";
 import { confirmDevisCreation } from "@/lib/whatsapp/confirm-creation";
 import { sendDevisToClient } from "@/lib/whatsapp/send-devis";
 import { normalizePhoneE164 } from "@/lib/phone";
+import { escalateToArtisan } from "@/lib/whatsapp/escalation";
 import {
   buildReplyForIntent,
   buildAmbiguousConfirmationReply,
@@ -17,11 +18,25 @@ import {
   buildDevisSentReply,
   buildCannotSendReply,
   buildSendFailedReply,
+  buildEscalationReply,
 } from "@/lib/whatsapp/reply-builder";
-import { emptyPendingDevis, applyExtractionToPendingDevis, type PendingDevis } from "@/lib/whatsapp/pending-devis";
+import {
+  emptyPendingDevis,
+  applyExtractionToPendingDevis,
+  applyStuckTracking,
+  type PendingDevis,
+} from "@/lib/whatsapp/pending-devis";
 import { DEFAULT_TVA_RATE } from "@/lib/ai/config";
 
 const SENDING_STATES = new Set(["awaiting_send_confirmation", "sending"]);
+
+// Mécanisme 4 (escalade), appliqué uniquement à la boucle générale de
+// clarification (hors_sujet/incomprehensible répétés) — cf.
+// lib/whatsapp/pending-devis.ts pour le raisonnement complet. Les boucles de
+// confirmation ambiguë (création/envoi) ne sont pas couvertes par ce
+// compteur pour l'instant — limitation connue, documentée dans le rapport
+// de fin d'étape plutôt que silencieusement ignorée.
+const MAX_STUCK_TURNS = 3;
 
 // Orchestration complète d'un tour de conversation texte : comprendre,
 // compléter, confirmer la création, créer le devis, confirmer l'envoi,
@@ -64,7 +79,10 @@ export async function processTextMessage(
   // Une extraction qui échoue remonte telle quelle jusqu'à processWhatsappJob,
   // qui marque le job 'failed' sans rien perdre — le message et la
   // conversation restent intacts pour un retry ultérieur.
-  const raw = await extractDevisInfo({ message: messageContent, recentHistory, currentPendingDevis }, opts);
+  const raw = await extractDevisInfo(
+    { userId, message: messageContent, recentHistory, currentPendingDevis },
+    opts
+  );
 
   // ── Gestion spécifique de la confirmation d'ENVOI (étape 6) ────────────
   if (SENDING_STATES.has(conversationRow.state) && conversationRow.lastCreatedDevisId) {
@@ -145,17 +163,37 @@ export async function processTextMessage(
   }
 
   // ── Cas général (étape 4 inchangée) : compréhension + fusion du brouillon
-  const nextPendingDevis = await applyExtractionToPendingDevis(
+  const merged = await applyExtractionToPendingDevis(
     currentPendingDevis,
     raw,
     DEFAULT_TVA_RATE,
     (name, phone) => resolveClient(userId, name, phone)
   );
 
+  // ── Mécanisme 4 (escalade), isolé : suivi de blocage conversationnel ────
+  const nextPendingDevis = applyStuckTracking(merged, raw, MAX_STUCK_TURNS);
+  const justEscalated = nextPendingDevis.escalated && !currentPendingDevis.escalated;
+
   await prisma.whatsappConversation.update({
     where: { id: conversationId },
     data: { pendingDevis: nextPendingDevis as unknown as object, state: nextPendingDevis.state },
   });
+
+  if (justEscalated) {
+    await escalateToArtisan(
+      userId,
+      "clarification_max",
+      nextPendingDevis.draftId,
+      "Une conversation WhatsApp semble bloquée : l'assistant n'a pas réussi à comprendre plusieurs messages à la suite pour préparer un devis."
+    );
+  }
+  if (nextPendingDevis.escalated) {
+    // Déjà signalé pour ce brouillon — ne relance jamais de nouvelle
+    // clarification tant qu'aucune info nouvelle n'a fait progresser le
+    // brouillon (cf. applyStuckTracking, qui lève "escalated" dès qu'un
+    // message "devis" apporte une vraie progression).
+    return buildEscalationReply();
+  }
 
   return buildReplyForIntent(nextPendingDevis, raw);
 }

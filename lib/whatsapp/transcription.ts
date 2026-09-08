@@ -1,11 +1,13 @@
 import { transcribe, NoTranscriptGeneratedError, type TranscriptionModel } from "ai";
 import { getWhatsappTranscriptionModel, isAiConfigured } from "@/lib/ai/config";
+import { recordAiUsage } from "@/lib/ai/usage";
 
-// Module isolé, comme lib/whatsapp/extraction.ts : aucune dépendance à
-// Prisma, au webhook ou à l'orchestrateur. Rôle strictement limité à
-// l'appel du service de transcription — jamais d'interprétation métier
-// (ça reste le rôle de l'extraction structurée existante), jamais de
-// réécriture ou correction de ce qui a été dit.
+// Module isolé, comme lib/whatsapp/extraction.ts : aucune dépendance au
+// webhook ou à l'orchestrateur, aucune interprétation métier (ça reste le
+// rôle de l'extraction structurée existante), jamais de réécriture ou
+// correction de ce qui a été dit. Seule dépendance Prisma indirecte :
+// lib/ai/usage.ts, pour enregistrer chaque appel réellement effectué
+// (étape 8) — aucune autre écriture en base ici.
 
 export class TranscriptionError extends Error {
   constructor(message: string, readonly cause?: unknown) {
@@ -32,6 +34,7 @@ const MAX_ATTEMPTS = 2;
 
 export async function transcribeAudio(
   audio: Buffer | Uint8Array,
+  userId: string,
   opts: { model?: TranscriptionModel | string } = {}
 ): Promise<TranscriptionResult> {
   if (opts.model === undefined && !isAiConfigured()) {
@@ -56,20 +59,35 @@ export async function transcribeAudio(
         },
       });
 
-      return {
+      const transcriptionResult: TranscriptionResult = {
         text: (result.text ?? "").trim(),
         durationInSeconds: result.durationInSeconds ?? null,
         language: result.language ?? null,
       };
+      // Un événement par appel réseau réel — cf. lib/ai/usage.ts. Jamais le
+      // texte transcrit lui-même, seulement la durée audio.
+      await recordAiUsage({
+        userId,
+        kind: "transcription",
+        success: true,
+        audioSeconds:
+          transcriptionResult.durationInSeconds !== null
+            ? Math.round(transcriptionResult.durationInSeconds)
+            : null,
+      });
+      return transcriptionResult;
     } catch (err) {
       // Un audio silencieux/incompréhensible fait lever cette erreur
       // spécifique par le SDK plutôt que de renvoyer un texte vide. Ce
       // n'est jamais transitoire — retenter la même transcription ne
       // produira rien de plus. On le traite comme un résultat vide plutôt
-      // que comme un échec technique à retenter.
+      // que comme un échec technique à retenter — l'appel au fournisseur a
+      // bien eu lieu et abouti, donc compté en succès.
       if (err instanceof NoTranscriptGeneratedError) {
+        await recordAiUsage({ userId, kind: "transcription", success: true, audioSeconds: null });
         return { text: "", durationInSeconds: null, language: null };
       }
+      await recordAiUsage({ userId, kind: "transcription", success: false });
       lastError = err;
     }
   }

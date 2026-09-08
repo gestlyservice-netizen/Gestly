@@ -1,10 +1,11 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type WhatsappSend } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizePhoneE164 } from "@/lib/phone";
 import { generateDevisPdfBuffer } from "@/lib/pdf/generate-document-pdf";
 import { uploadWhatsappMedia } from "@/lib/whatsapp/media";
 import { sendWhatsappDocument } from "@/lib/whatsapp/send";
-import { claimSendAttempt, markSendFailed, markSendSuccess } from "@/lib/whatsapp/send-claim";
+import { claimSendAttempt, markSendFailed, markSendSuccess, MAX_SEND_ATTEMPTS } from "@/lib/whatsapp/send-claim";
+import { escalateToArtisan } from "@/lib/whatsapp/escalation";
 
 export type SendDevisOutcome =
   | { kind: "sent"; number: string; clientName: string }
@@ -22,6 +23,28 @@ function isPlausibleE164(phone: string): boolean {
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// Échec définitif = échec sur la tentative qui a atteint le plafond
+// MAX_SEND_ATTEMPTS (claimSendAttempt exclut déjà toute réclamation
+// ultérieure au-delà de ce plafond — aucun retry ne suivra). Escalade
+// (mécanisme 4) uniquement dans ce cas, jamais sur un échec transitoire qui
+// sera retenté automatiquement.
+async function markFailedAndMaybeEscalate(
+  send: WhatsappSend,
+  userId: string,
+  devisNumber: string,
+  message: string
+): Promise<void> {
+  await markSendFailed(send.id, message);
+  if (send.attempts >= MAX_SEND_ATTEMPTS) {
+    await escalateToArtisan(
+      userId,
+      "envoi_echec",
+      send.devisId,
+      `L'envoi WhatsApp du devis ${devisNumber} a échoué de façon définitive après ${MAX_SEND_ATTEMPTS} tentatives (${message}). Le devis reste créé, il faudra l'envoyer autrement.`
+    );
+  }
 }
 
 // Workflow complet : awaiting_send_confirmation -> validation destinataire
@@ -95,7 +118,7 @@ export async function sendDevisToClient(conversationId: string, userId: string):
     const settings = await prisma.settings.findUnique({ where: { userId } });
     pdfBuffer = generateDevisPdfBuffer(devis, devis.lines, devis.client, settings);
   } catch (err) {
-    await markSendFailed(send.id, `Échec génération PDF : ${errMessage(err)}`);
+    await markFailedAndMaybeEscalate(send, userId, devis.number, `Échec génération PDF : ${errMessage(err)}`);
     return { kind: "failed" };
   }
 
@@ -105,7 +128,7 @@ export async function sendDevisToClient(conversationId: string, userId: string):
     const upload = await uploadWhatsappMedia(pdfBuffer, `devis-${devis.number}.pdf`, "application/pdf");
     mediaId = upload.mediaId;
   } catch (err) {
-    await markSendFailed(send.id, `Échec upload média : ${errMessage(err)}`);
+    await markFailedAndMaybeEscalate(send, userId, devis.number, `Échec upload média : ${errMessage(err)}`);
     return { kind: "failed" };
   }
 
@@ -115,7 +138,7 @@ export async function sendDevisToClient(conversationId: string, userId: string):
     const result = await sendWhatsappDocument(phone, mediaId, `devis-${devis.number}.pdf`, `Devis ${devis.number}`);
     externalMessageId = result.messageId;
   } catch (err) {
-    await markSendFailed(send.id, `Échec envoi document : ${errMessage(err)}`);
+    await markFailedAndMaybeEscalate(send, userId, devis.number, `Échec envoi document : ${errMessage(err)}`);
     return { kind: "failed" };
   }
 
@@ -123,7 +146,7 @@ export async function sendDevisToClient(conversationId: string, userId: string):
     // Meta a répondu succès sans identifiant exploitable : impossible de
     // prouver/dédupliquer l'envoi plus tard — traité en échec retryable
     // plutôt que faussement déclaré réussi.
-    await markSendFailed(send.id, "Réponse Meta sans identifiant de message exploitable");
+    await markFailedAndMaybeEscalate(send, userId, devis.number, "Réponse Meta sans identifiant de message exploitable");
     return { kind: "failed" };
   }
 

@@ -38,6 +38,7 @@ model User {
   notifications         Notification[]
   opportunities         Opportunity[]
   whatsappConversations WhatsappConversation[]
+  aiUsageEvents         AiUsageEvent[]
 }
 
 model Client {
@@ -473,4 +474,26 @@ model WhatsappSend {
   conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([status])
+}
+
+// Étape 8 — comptage brut de chaque appel IA réellement effectué (extraction
+// texte WhatsApp ou transcription vocale), un événement par appel réseau
+// réel au fournisseur (pas par message/tour de conversation). Sert de socle
+// à un plafond configurable (cf. lib/ai/usage.ts) — jamais une offre
+// commerciale figée ici, seulement des données brutes agrégables par
+// utilisateur et par mois. Jamais de contenu (texte, transcript) stocké ici,
+// uniquement des métadonnées numériques.
+model AiUsageEvent {
+  id           String   @id @default(cuid())
+  userId       String
+  kind         String // "extraction" | "transcription"
+  success      Boolean
+  inputTokens  Int?
+  outputTokens Int?
+  audioSeconds Int?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

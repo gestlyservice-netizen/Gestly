@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getMediaMetadata, downloadMediaBuffer, MediaTooLargeError } from "@/lib/whatsapp/media";
 import { transcribeAudio } from "@/lib/whatsapp/transcription";
 import { getWhatsappTranscriptionModel } from "@/lib/ai/config";
+import { escalateToArtisan } from "@/lib/whatsapp/escalation";
 
 export type VoiceResolution =
   | { kind: "transcribed"; text: string }
@@ -86,6 +87,12 @@ export async function resolveVoiceMessageText(
   try {
     if (!message.mediaId) {
       await prisma.whatsappMessage.update({ where: { id: message.id }, data: { transcriptionStatus: "failed" } });
+      await escalateToArtisan(
+        userId,
+        "transcription_echec",
+        message.id,
+        "Un message vocal reçu par WhatsApp n'a pas pu être traité (identifiant de média manquant) — la transcription a échoué définitivement."
+      );
       return { kind: "failed", reason: "media_not_found" };
     }
 
@@ -94,9 +101,19 @@ export async function resolveVoiceMessageText(
       metadata = await getMediaMetadata(message.mediaId);
     } catch (err) {
       // Média introuvable côté Meta (expiré, supprimé...) : ne s'améliorera
-      // pas avec un retry — définitif.
+      // pas avec un retry — définitif, et opaque pour l'artisan (rien à
+      // faire de son côté) : c'est le seul cas d'échec de transcription
+      // considéré comme "définitif" au sens de l'escalade (étape 8) — les
+      // autres (format non supporté, trop volumineux, vide) ont déjà une
+      // réponse claire et actionnable par l'artisan lui-même.
       await prisma.whatsappMessage.update({ where: { id: message.id }, data: { transcriptionStatus: "failed" } });
       console.warn(`[whatsapp/voice] média introuvable user=${userId} messageId=${message.id}: ${errMessage(err)}`);
+      await escalateToArtisan(
+        userId,
+        "transcription_echec",
+        message.id,
+        "Un message vocal reçu par WhatsApp n'a pas pu être récupéré (média introuvable) — la transcription a échoué définitivement."
+      );
       return { kind: "failed", reason: "media_not_found" };
     }
 
@@ -128,7 +145,7 @@ export async function resolveVoiceMessageText(
     // audioBuffer ne vit qu'en mémoire ici — jamais écrit sur disque, jamais
     // stocké durablement ; il sort de portée (et devient éligible au
     // ramasse-miettes) dès la fin de cette fonction.
-    const result = await transcribeAudio(audioBuffer, { model: opts.model }); // erreurs transitoires levées telles quelles
+    const result = await transcribeAudio(audioBuffer, userId, { model: opts.model }); // erreurs transitoires levées telles quelles
     const elapsedMs = Date.now() - startedAt;
 
     // Instrumentation minimale pour mesurer l'usage réel (coût/latence)

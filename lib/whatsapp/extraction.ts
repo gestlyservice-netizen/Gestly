@@ -1,13 +1,16 @@
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
 import { getWhatsappExtractionModel, isAiConfigured } from "@/lib/ai/config";
+import { recordAiUsage } from "@/lib/ai/usage";
 import type { PendingDevis, RawExtraction } from "@/lib/whatsapp/pending-devis";
 
-// Module isolé : ne dépend ni de Prisma, ni du webhook, ni de l'orchestrateur.
-// Rôle strictement limité à la compréhension du langage — JAMAIS la
-// rédaction de la réponse envoyée à l'artisan (ça reste déterministe,
-// cf. lib/whatsapp/reply-builder.ts), et jamais d'accès à la base de
-// données (la résolution client se fait ailleurs, cf. client-resolution.ts).
+// Module isolé : ne dépend ni du webhook, ni de l'orchestrateur, ni d'aucune
+// logique métier de devis. Rôle strictement limité à la compréhension du
+// langage — JAMAIS la rédaction de la réponse envoyée à l'artisan (ça reste
+// déterministe, cf. lib/whatsapp/reply-builder.ts), et jamais d'accès à la
+// résolution client (cf. client-resolution.ts). Seule dépendance Prisma
+// indirecte : lib/ai/usage.ts, pour enregistrer chaque appel réellement
+// effectué (étape 8) — aucune autre écriture en base ici.
 
 const RawLineSchema = z.object({
   ligneCibleIndex: z
@@ -80,6 +83,7 @@ RÈGLES STRICTES, JAMAIS D'EXCEPTION :
 Réponds uniquement avec la structure demandée, sans texte libre additionnel.`;
 
 export interface ExtractionInput {
+  userId: string;
   message: string;
   recentHistory: { direction: "in" | "out"; content: string }[];
   currentPendingDevis: PendingDevis;
@@ -139,8 +143,18 @@ export async function extractDevisInfo(
         system: SYSTEM_PROMPT,
         prompt: attempt === 1 ? prompt : `${prompt}\n\n(Ta réponse précédente n'était pas valide — respecte strictement le format demandé.)`,
       });
+      // Un événement par appel réseau réel — cf. lib/ai/usage.ts pour le
+      // raisonnement complet sur le comptage retry-safe.
+      await recordAiUsage({
+        userId: input.userId,
+        kind: "extraction",
+        success: true,
+        inputTokens: result.usage?.inputTokens ?? null,
+        outputTokens: result.usage?.outputTokens ?? null,
+      });
       return result.object as RawExtraction;
     } catch (err) {
+      await recordAiUsage({ userId: input.userId, kind: "extraction", success: false });
       lastError = err;
     }
   }

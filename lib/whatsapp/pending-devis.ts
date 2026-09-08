@@ -65,6 +65,23 @@ export interface PendingDevis {
   ambiguitesOuvertes: string[];
   state: PendingDevisState;
   lastUpdatedAt: string;
+  // Identifiant stable de CE brouillon (régénéré à chaque annulation/reprise
+  // à zéro) — sert uniquement de clé de dédoublonnage pour l'escalade
+  // humaine (étape 8), jamais utilisé pour une décision métier.
+  draftId: string;
+  // Nombre de tours consécutifs sans progression (hors_sujet/incomprehensible)
+  // depuis la dernière info utile — cf. lib/whatsapp/conversation-turn.ts.
+  stuckTurns: number;
+  // Une fois vrai, une notification d'escalade a déjà été créée pour ce
+  // brouillon — ne redemande plus de clarification tant qu'aucune info
+  // nouvelle n'a fait progresser le brouillon (cf. applyStuckTracking).
+  escalated: boolean;
+}
+
+function newDraftId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `draft_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 export function emptyPendingDevis(now: Date = new Date()): PendingDevis {
@@ -86,6 +103,30 @@ export function emptyPendingDevis(now: Date = new Date()): PendingDevis {
     ambiguitesOuvertes: [],
     state: "collecting",
     lastUpdatedAt: now.toISOString(),
+    draftId: newDraftId(),
+    stuckTurns: 0,
+    escalated: false,
+  };
+}
+
+// Suivi de blocage conversationnel (étape 8, mécanisme 4 — escalade) :
+// incrémente stuckTurns sur un message qui n'apporte aucune information
+// utile (hors_sujet/incomprehensible), le remet à zéro dès qu'un message
+// "devis" progresse réellement le brouillon (même partiellement — c'est un
+// engagement sur le sujet, pas un blocage). `escalated` reste vrai tant que
+// le blocage n'a pas été résolu par une vraie progression, pour ne jamais
+// redemander de clarification ni ré-appeler l'IA de façon perçue comme
+// bloquante une fois l'artisan signalé à Gestly.
+export function applyStuckTracking(current: PendingDevis, raw: RawExtraction, maxStuckTurns: number): PendingDevis {
+  if (raw.intent === "devis" && !raw.plusieursDevisDetectes) {
+    return { ...current, stuckTurns: 0, escalated: false };
+  }
+  const stuck = raw.intent === "hors_sujet" || raw.intent === "incomprehensible";
+  const stuckTurns = stuck ? current.stuckTurns + 1 : current.stuckTurns;
+  return {
+    ...current,
+    stuckTurns,
+    escalated: current.escalated || stuckTurns >= maxStuckTurns,
   };
 }
 

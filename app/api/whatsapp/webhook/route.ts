@@ -6,6 +6,8 @@ import { isSubscriptionBlocked } from "@/lib/auth";
 import { normalizePhoneE164 } from "@/lib/phone";
 import { isValidMetaSignature } from "@/lib/whatsapp/verify-signature";
 import { resolveUserByPhone } from "@/lib/whatsapp/identify";
+import { isStopCommand } from "@/lib/whatsapp/artisan-optout";
+import { handleClientStopFromUnknownSender } from "@/lib/whatsapp/client-optout";
 import { MetaMessage, MetaWebhookPayload, type MetaMessageT } from "@/lib/whatsapp/meta-types";
 import { processWhatsappJob } from "@/lib/whatsapp/agent";
 
@@ -101,12 +103,18 @@ async function handleIncomingMessage(message: MetaMessageT, gestlyNumber: string
 
   const user = await resolveUserByPhone(senderPhone);
 
-  // Numéro inconnu : aucune conversation, aucun message, aucune donnée
-  // métier créée pour un utilisateur qui n'existe pas. Journal minimal
-  // uniquement (numéro tronqué serait préférable en prod avec un vrai
-  // logger ; conservé tel quel ici pour rester simple en V1).
+  // Numéro inconnu en tant qu'artisan : aucune conversation, aucun message,
+  // aucune donnée métier créée. Seule exception (mécanisme 2, étape 8) : un
+  // STOP explicite peut correspondre à un Client final déjà connu d'un
+  // artisan — cf. lib/whatsapp/client-optout.ts pour la résolution sûre
+  // (jamais de conversation/message créés pour autant, uniquement une
+  // éventuelle mise à jour de la fiche Client existante).
   if (!user) {
-    console.info(`[whatsapp/webhook] numéro inconnu (${senderPhone}) — ignoré sans persistance`);
+    if (message.type === "text" && isStopCommand(message.text?.body ?? "")) {
+      await handleClientStopFromUnknownSender(senderPhone);
+    } else {
+      console.info(`[whatsapp/webhook] numéro inconnu (${senderPhone}) — ignoré sans persistance`);
+    }
     return;
   }
 

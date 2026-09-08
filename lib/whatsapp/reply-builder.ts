@@ -25,6 +25,23 @@ export function buildVoiceEmptyReply(): string {
   return "Je n'ai rien entendu dans votre message vocal. Pouvez-vous le renvoyer, ou écrire votre message directement ?";
 }
 
+// ── Réponses liées aux garde-fous (étape 8) ──────────────────────────────
+export function buildStopConfirmationReply(): string {
+  return "L'assistant Gestly est désactivé pour ce numéro. Envoyez START à tout moment pour le réactiver.";
+}
+
+export function buildStartConfirmationReply(): string {
+  return "L'assistant Gestly est réactivé. Vous pouvez reprendre normalement.";
+}
+
+export function buildAiQuotaExceededReply(): string {
+  return "L'assistant WhatsApp a atteint sa limite d'utilisation pour ce mois-ci. Vous pouvez continuer à utiliser Gestly normalement depuis votre espace (devis, factures, clients) ; l'assistant sera de nouveau disponible le mois prochain.";
+}
+
+export function buildEscalationReply(): string {
+  return "Je n'arrive pas à terminer cette demande. Je l'ai signalée dans Gestly.";
+}
+
 export function buildOffTopicReply(): string {
   return "Je n'ai pas repéré de demande de devis dans ce message. Décrivez-moi le client et les prestations quand vous voulez, je m'en occupe.";
 }

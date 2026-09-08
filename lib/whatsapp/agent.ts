@@ -4,11 +4,16 @@ import { claimJob } from "@/lib/whatsapp/job-queue";
 import { sendWhatsappText } from "@/lib/whatsapp/send";
 import { processTextMessage } from "@/lib/whatsapp/conversation-turn";
 import { resolveVoiceMessageText } from "@/lib/whatsapp/voice-message";
+import { isStopCommand, isStartCommand, disableArtisanBot, enableArtisanBot } from "@/lib/whatsapp/artisan-optout";
+import { isAiQuotaExceeded } from "@/lib/ai/usage";
 import {
   buildVoiceMediaNotFoundReply,
   buildVoiceUnsupportedFormatReply,
   buildVoiceTooLargeReply,
   buildVoiceEmptyReply,
+  buildStopConfirmationReply,
+  buildStartConfirmationReply,
+  buildAiQuotaExceededReply,
 } from "@/lib/whatsapp/reply-builder";
 
 // Point d'entrée unique du traitement métier des jobs WhatsApp. Le webhook
@@ -59,20 +64,26 @@ export async function processWhatsappJob(jobId: string): Promise<boolean> {
       throw new Error("Conversation invalide ou non identifiée (utilisateur manquant)");
     }
 
-    const replyText = await buildReply(message, conversation.id, conversation.userId);
+    const replyText = await buildReply(message, conversation.id, conversation.userId, conversation.optedOut);
 
-    await sendWhatsappText(conversation.phoneNumber, replyText);
+    // null = silence volontaire (conversation en opt-out en dehors de la
+    // confirmation initiale de désactivation, cf. mécanisme 1) : aucun envoi
+    // WhatsApp, aucun message sortant persisté, mais le job est bien marqué
+    // "done" — ce n'est pas un échec, c'est le comportement attendu.
+    if (replyText !== null) {
+      await sendWhatsappText(conversation.phoneNumber, replyText);
 
-    // Historique réellement bidirectionnel : le message sortant est
-    // persisté au même titre que les messages entrants.
-    await prisma.whatsappMessage.create({
-      data: {
-        conversationId: conversation.id,
-        direction: "out",
-        type: "text",
-        content: replyText,
-      },
-    });
+      // Historique réellement bidirectionnel : le message sortant est
+      // persisté au même titre que les messages entrants.
+      await prisma.whatsappMessage.create({
+        data: {
+          conversationId: conversation.id,
+          direction: "out",
+          type: "text",
+          content: replyText,
+        },
+      });
+    }
 
     await prisma.whatsappJob.update({
       where: { id: jobId },
@@ -98,7 +109,53 @@ export async function processWhatsappJob(jobId: string): Promise<boolean> {
 // textuelle ordinaire pour processTextMessage — jamais un second agent, ni
 // de logique métier parallèle spécifique à l'audio au-delà de la
 // résolution de son texte.
-async function buildReply(message: WhatsappMessage, conversationId: string, userId: string): Promise<string> {
+//
+// Ordre des garde-fous (étape 8), volontairement strict et jamais mélangé :
+//   1. STOP/START artisan (mécanisme 1) — toujours évalué en premier, sans
+//      jamais appeler l'IA, quel que soit l'état courant.
+//   2. Silence total si la conversation est en opt-out (mécanisme 1).
+//   3. Plafond d'usage IA (mécanisme 3) — vérifié AVANT tout appel IA,
+//      texte comme vocal.
+//   4. Traitement normal (extraction/transcription, mécanisme 4 inclus
+//      dans conversation-turn.ts pour l'escalade sur blocage conversationnel).
+//
+// Retourne null pour signifier "aucune réponse à envoyer" (silence) —
+// distinct d'une chaîne vide, qui resterait un message WhatsApp réel.
+async function buildReply(
+  message: WhatsappMessage,
+  conversationId: string,
+  userId: string,
+  isOptedOut: boolean
+): Promise<string | null> {
+  // ── Mécanisme 1, isolé : STOP / START artisan → bot ────────────────────
+  if (message.type === "text") {
+    if (isStopCommand(message.content)) {
+      if (isOptedOut) {
+        // Déjà désactivé : le bot a déjà confirmé une fois, on ne relance
+        // jamais une seconde confirmation.
+        return null;
+      }
+      await disableArtisanBot(conversationId);
+      return buildStopConfirmationReply();
+    }
+    if (isStartCommand(message.content) && isOptedOut) {
+      await enableArtisanBot(conversationId);
+      return buildStartConfirmationReply();
+    }
+  }
+
+  if (isOptedOut) {
+    // Conversation désactivée : aucun appel IA, aucune transcription,
+    // aucune création/envoi de devis, aucune réponse — silence total tant
+    // que START n'a pas été reçu explicitement.
+    return null;
+  }
+
+  // ── Mécanisme 3, isolé : plafond d'usage IA ────────────────────────────
+  if (await isAiQuotaExceeded(userId)) {
+    return buildAiQuotaExceededReply();
+  }
+
   if (message.type !== "audio") {
     return processTextMessage(conversationId, userId, message.content);
   }

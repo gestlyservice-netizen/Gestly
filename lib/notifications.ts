@@ -6,7 +6,8 @@ export type NotificationType =
   | "facture_en_retard"
   | "relance_envoyee"
   | "relance_echouee"
-  | "devis_accepte";
+  | "devis_accepte"
+  | "whatsapp_escalade";
 
 export async function createNotification(
   userId: string,
