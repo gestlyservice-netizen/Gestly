@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isSubscriptionBlocked } from "@/lib/auth";
@@ -6,6 +7,7 @@ import { normalizePhoneE164 } from "@/lib/phone";
 import { isValidMetaSignature } from "@/lib/whatsapp/verify-signature";
 import { resolveUserByPhone } from "@/lib/whatsapp/identify";
 import { MetaMessage, MetaWebhookPayload, type MetaMessageT } from "@/lib/whatsapp/meta-types";
+import { processWhatsappJob } from "@/lib/whatsapp/agent";
 
 // Jamais mis en cache, jamais pré-rendu : c'est un endpoint d'intégration
 // externe pur.
@@ -168,7 +170,15 @@ async function handleIncomingMessage(message: MetaMessageT, gestlyNumber: string
     return;
   }
 
-  await prisma.whatsappJob.create({
+  const job = await prisma.whatsappJob.create({
     data: { messageId: whatsappMessage.id, status: "pending" },
   });
+
+  // Déclenchement : traitement lancé après la réponse HTTP (waitUntil ne
+  // bloque jamais la réponse à Meta), toujours via l'orchestrateur unique
+  // (lib/whatsapp/agent.ts) — le webhook ne contient aucune autre logique
+  // métier. Filet de sécurité : /api/whatsapp/process-pending (cron) reprend
+  // tout job resté pending/failed/bloqué, si ce déclenchement immédiat
+  // échoue ou n'aboutit pas (cold start interrompu, etc.).
+  waitUntil(processWhatsappJob(job.id));
 }
