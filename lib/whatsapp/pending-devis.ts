@@ -109,6 +109,7 @@ export interface RawExtractedLine {
 
 export interface RawExtraction {
   intent: "devis" | "hors_sujet" | "annulation" | "confirmation" | "incomprehensible";
+  reponseConfirmation: "oui" | "non" | "ambigu" | null;
   client: {
     nom: string | null;
     telephone: string | null;

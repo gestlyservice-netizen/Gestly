@@ -28,8 +28,28 @@ export function buildNotReadyConfirmationReply(): string {
   return "Il me manque encore des informations avant de pouvoir vous montrer un récapitulatif. Décrivez-moi le client et les prestations.";
 }
 
-export function buildPendingCreationPlaceholderReply(): string {
-  return "Le brouillon est prêt, mais la création réelle du devis n'est pas encore activée sur cette version — ça arrive bientôt. Rien n'a été enregistré pour l'instant.";
+// (aucune fonction de placeholder de création ici — la création réelle est
+// gérée par lib/whatsapp/confirm-creation.ts, orchestrée depuis
+// conversation-turn.ts)
+
+export function buildAmbiguousConfirmationReply(pendingDevis: PendingDevis): string {
+  return `Je n'ai pas compris si c'est oui ou non. ${buildRecapReply(pendingDevis)}`;
+}
+
+export function buildCreationDeclinedReply(): string {
+  return "D'accord, je ne crée rien pour l'instant. Qu'est-ce qu'il faut changer dans le devis ?";
+}
+
+export function buildDevisCreatedReply(number: string, clientName: string, totalTTC: number): string {
+  return [
+    `Le devis ${number} pour ${clientName}, montant ${round2(totalTTC)} € TTC, a été créé.`,
+    "Il n'est pas encore envoyé au client.",
+    "Voulez-vous que je l'envoie maintenant ?",
+  ].join(" ");
+}
+
+export function buildInsufficientDataForCreationReply(missing: string[]): string {
+  return `Il manque encore des informations pour créer ce devis : ${missing.join(", ")}.`;
 }
 
 export function buildClarificationReply(pendingDevis: PendingDevis): string {
@@ -86,7 +106,7 @@ export function buildRecapReply(pendingDevis: PendingDevis): string {
     lines,
     `Total estimé : ${round2(totalTTC)}€`,
     "",
-    "Ce récapitulatif n'est pas encore enregistré (étape à venir).",
+    "Je crée ce devis ? Répondez OUI pour confirmer, ou dites-moi ce qu'il faut changer.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -96,16 +116,16 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// Utilisé pour le cas général (hors gestion spécifique de la confirmation de
+// création/envoi, qui a sa propre orchestration dans conversation-turn.ts
+// une fois qu'un brouillon est prêt). Ici, "confirmation" ne peut arriver
+// que hors contexte (aucune confirmation en attente).
 export function buildReplyForIntent(pendingDevis: PendingDevis, raw: RawExtraction): string {
   if (raw.intent === "hors_sujet") return buildOffTopicReply();
   if (raw.intent === "incomprehensible") return buildIncomprehensibleReply();
   if (raw.intent === "annulation") return buildCancelledReply();
   if (raw.plusieursDevisDetectes) return buildMultipleDevisReply();
-  if (raw.intent === "confirmation") {
-    return pendingDevis.state === "awaiting_creation_confirmation"
-      ? buildPendingCreationPlaceholderReply()
-      : buildNotReadyConfirmationReply();
-  }
+  if (raw.intent === "confirmation") return buildNotReadyConfirmationReply();
   return pendingDevis.state === "awaiting_creation_confirmation"
     ? buildRecapReply(pendingDevis)
     : buildClarificationReply(pendingDevis);

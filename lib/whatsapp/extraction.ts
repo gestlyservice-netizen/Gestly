@@ -28,6 +28,10 @@ const RawLineSchema = z.object({
 
 export const RawExtractionSchema = z.object({
   intent: z.enum(["devis", "hors_sujet", "annulation", "confirmation", "incomprehensible"]),
+  reponseConfirmation: z
+    .enum(["oui", "non", "ambigu"])
+    .nullable()
+    .describe("Renseigné uniquement si intent=\"confirmation\" : le sens de la confirmation. \"ambigu\" si ce n'est pas clairement oui ou non."),
   client: z.object({
     nom: z.string().nullable(),
     telephone: z.string().nullable(),
@@ -65,7 +69,10 @@ RÈGLES STRICTES, JAMAIS D'EXCEPTION :
 5. Si le message contient plusieurs devis différents pour des clients différents, mets plusieursDevisDetectes à true et n'extrais que le premier.
 6. Si le message ne concerne pas un devis (question générale, bavardage), intent = "hors_sujet".
 7. Si l'artisan semble vouloir annuler/abandonner le brouillon en cours, intent = "annulation".
-8. Si le message est une simple confirmation/accord ("oui", "ok", "c'est bon", "vas-y") sans nouvelle information, intent = "confirmation".
+8. Si le message est une réponse à une question de confirmation (oui/non/ambigu), intent = "confirmation" et renseigne reponseConfirmation :
+   - "oui" seulement si la réponse est clairement affirmative et non ambiguë ("oui", "ok", "vas-y", "c'est bon", "confirmé").
+   - "non" seulement si la réponse est clairement négative ("non", "annule", "pas encore", "attends").
+   - "ambigu" pour tout le reste (silence sur la question, réponse évasive, "peut-être", "je sais pas") — ne jamais forcer oui ou non par défaut.
 9. Si le message est illisible ou incompréhensible, intent = "incomprehensible".
 10. Sinon, intent = "devis".
 11. Liste dans "ambiguites" toute incertitude que tu repères mais NE DOIS PAS trancher toi-même (ex: nom de client qui pourrait désigner deux personnes différentes mentionnées avant).

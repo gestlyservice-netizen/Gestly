@@ -365,12 +365,25 @@ model WhatsappConversation {
   id            String    @id @default(cuid())
   userId        String?
   phoneNumber   String // numéro E.164 de l'expéditeur (l'artisan)
-  // idle | collecting | awaiting_creation_confirmation | awaiting_send_confirmation | opted_out
-  state         String    @default("idle")
-  pendingDevis  Json? // brouillon structuré en cours de collecte/validation
+  // idle | collecting | awaiting_creation_confirmation | creating |
+  // awaiting_send_confirmation | opted_out
+  // "creating" est un état transitoire réclamé atomiquement (cf.
+  // lib/whatsapp/confirm-creation.ts) pour garantir qu'une confirmation ne
+  // produit jamais deux créations, même en cas de concurrence ou de retry.
+  state           String    @default("idle")
+  pendingDevis    Json? // brouillon structuré en cours de collecte/validation
+  // Devis réellement créé pour cette conversation, une fois la création
+  // confirmée (étape 5) — permet de répondre de façon idempotente à toute
+  // relecture/rejeu sans jamais recréer de devis.
+  lastCreatedDevisId String?
   optedOut      Boolean   @default(false) // STOP de l'artisan envers le bot
   lastMessageAt DateTime  @default(now())
   createdAt     DateTime  @default(now())
+  // Sert à détecter un état "creating" resté bloqué (crash pendant la
+  // création) : reprenable seulement après un délai, jamais immédiatement
+  // — sinon l'état transitoire lui-même deviendrait une brèche dans
+  // l'exclusion mutuelle entre deux tentatives concurrentes.
+  updatedAt     DateTime  @updatedAt
 
   user     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages WhatsappMessage[]

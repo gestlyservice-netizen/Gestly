@@ -1,24 +1,19 @@
 import { prisma } from "@/lib/prisma";
 import { claimJob } from "@/lib/whatsapp/job-queue";
 import { sendWhatsappText } from "@/lib/whatsapp/send";
-import { extractDevisInfo } from "@/lib/whatsapp/extraction";
-import { resolveClient } from "@/lib/whatsapp/client-resolution";
-import { buildReplyForIntent } from "@/lib/whatsapp/reply-builder";
-import {
-  emptyPendingDevis,
-  applyExtractionToPendingDevis,
-  type PendingDevis,
-  type RawExtraction,
-} from "@/lib/whatsapp/pending-devis";
-import { DEFAULT_TVA_RATE } from "@/lib/ai/config";
+import { processTextMessage } from "@/lib/whatsapp/conversation-turn";
 
 // Point d'entrée unique du traitement métier des jobs WhatsApp. Le webhook
-// ne fait qu'y déléguer — aucune logique métier n'existe ailleurs.
+// ne fait qu'y déléguer — aucune logique métier n'existe ailleurs. Toute la
+// compréhension/fusion/confirmation/création vit dans des modules dédiés
+// (conversation-turn.ts, confirm-creation.ts, extraction.ts...) — ce fichier
+// reste une simple plomberie : réclamer le job, charger le message, déléguer,
+// envoyer la réponse, persister l'historique, marquer le job terminé.
 //
-// Étape 4 : compréhension et structuration du brouillon de devis (extraction
-// IA + résolution client + fusion multi-tours). Toujours AUCUNE création de
-// Devis réel, aucun PDF, aucun envoi au client final à ce stade — seule la
-// conversation avec l'artisan progresse. La création réelle est l'étape 5.
+// Étape 5 : confirmation explicite puis création réelle du devis (client +
+// devis + lignes, transactionnelle et idempotente). Toujours aucun PDF,
+// aucun envoi au client final, aucun statut "envoyé" à ce stade — ça reste
+// l'étape 6.
 //
 // Retourne true seulement si CE processus a effectivement réclamé et
 // traité le job (succès ou échec) — false s'il a été ignoré parce que déjà
@@ -30,7 +25,6 @@ export async function processWhatsappJob(jobId: string): Promise<boolean> {
   if (!claimed) {
     // Déjà en cours de traitement ailleurs, déjà terminé, ou plus reprenable
     // (trop de tentatives) — on n'agit jamais deux fois sur le même job.
-    // Conséquence directe : aucun nouvel appel IA pour un job déjà traité.
     return false;
   }
 
@@ -60,7 +54,7 @@ export async function processWhatsappJob(jobId: string): Promise<boolean> {
     const replyText =
       message.type === "audio"
         ? buildAudioPlaceholderReply()
-        : await buildTextReply(conversation.id, conversation.userId, message.content);
+        : await processTextMessage(conversation.id, conversation.userId, message.content);
 
     await sendWhatsappText(conversation.phoneNumber, replyText);
 
@@ -99,42 +93,4 @@ function buildAudioPlaceholderReply(): string {
     "Message vocal bien reçu ✅\n\n" +
     "La transcription automatique n'est pas encore activée — cette fonctionnalité arrive à une prochaine étape."
   );
-}
-
-async function buildTextReply(conversationId: string, userId: string, messageContent: string): Promise<string> {
-  const conversationRow = await prisma.whatsappConversation.findUniqueOrThrow({ where: { id: conversationId } });
-  const currentPendingDevis: PendingDevis = (conversationRow.pendingDevis as unknown as PendingDevis) ?? emptyPendingDevis();
-
-  const recentMessages = await prisma.whatsappMessage.findMany({
-    where: { conversationId },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
-  const recentHistory = recentMessages
-    .reverse()
-    .map((m) => ({ direction: m.direction as "in" | "out", content: m.content }));
-
-  // Une extraction qui échoue (ExtractionError après retry, ou toute autre
-  // erreur) remonte telle quelle jusqu'à processWhatsappJob, qui marque le
-  // job 'failed' sans rien perdre — le message et la conversation restent
-  // intacts pour un retry ultérieur.
-  const raw: RawExtraction = await extractDevisInfo({
-    message: messageContent,
-    recentHistory,
-    currentPendingDevis,
-  });
-
-  const nextPendingDevis = await applyExtractionToPendingDevis(
-    currentPendingDevis,
-    raw,
-    DEFAULT_TVA_RATE,
-    (name, phone) => resolveClient(userId, name, phone)
-  );
-
-  await prisma.whatsappConversation.update({
-    where: { id: conversationId },
-    data: { pendingDevis: nextPendingDevis as unknown as object, state: nextPendingDevis.state },
-  });
-
-  return buildReplyForIntent(nextPendingDevis, raw);
 }
