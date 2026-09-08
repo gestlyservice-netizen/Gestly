@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { devisPublicLink } from "@/lib/url";
-
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/[\s\-\.]/g, "");
-  return digits.startsWith("0") ? "+33" + digits.slice(1) : digits;
-}
+import { normalizePhoneE164 } from "@/lib/phone";
 
 export async function POST(
   _req: Request,
@@ -39,7 +35,7 @@ export async function POST(
       return NextResponse.json({ error: "Ce client n'a pas de numéro de téléphone" }, { status: 400 });
     }
 
-    const to     = normalizePhone(devis.client.phone);
+    const to     = normalizePhoneE164(devis.client.phone);
     const amount = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const link   = devisPublicLink(devis.id);
 

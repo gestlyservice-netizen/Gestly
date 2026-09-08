@@ -1,12 +1,5 @@
 import type { SmsProvider } from "./types";
-
-function formatNumber(phone: string): string {
-  let n = phone.replace(/\s+/g, "");
-  if (n.startsWith("00")) n = "+" + n.slice(2);
-  else if (n.startsWith("0")) n = "+33" + n.slice(1);
-  else if (!n.startsWith("+")) n = "+" + n;
-  return n;
-}
+import { normalizePhoneE164 } from "@/lib/phone";
 
 // OVH alphanumeric sender: 3–11 chars, alphanumeric only, no accents
 function sanitizeSender(name: string): string {
@@ -51,14 +44,14 @@ export class OvhProvider implements SmsProvider {
 
     const payloadWithSender = {
       message,
-      receivers: [formatNumber(to)],
+      receivers: [normalizePhoneE164(to)],
       senderForResponse: false,
       sender: effectiveSender,
       noStopClause: false,
     };
     const payloadFallback = {
       message,
-      receivers: [formatNumber(to)],
+      receivers: [normalizePhoneE164(to)],
       senderForResponse: true,
       noStopClause: false,
     };

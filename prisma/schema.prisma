@@ -27,15 +27,17 @@ model User {
   plan                    String    @default("starter")
   createdAt            DateTime  @default(now())
 
-  clients         Client[]
-  devis           Devis[]
-  factures        Facture[]
-  avoirs          Avoir[]
-  settings        Settings?
-  relanceSettings RelanceSettings?
-  events          Event[]
-  notifications   Notification[]
-  opportunities   Opportunity[]
+  clients               Client[]
+  devis                 Devis[]
+  factures              Facture[]
+  avoirs                Avoir[]
+  settings              Settings?
+  relanceSettings       RelanceSettings?
+  relanceDevisSettings  RelanceDevisSettings?
+  events                Event[]
+  notifications         Notification[]
+  opportunities         Opportunity[]
+  whatsappConversations WhatsappConversation[]
 }
 
 model Client {
@@ -46,6 +48,10 @@ model Client {
   phone            String?
   address          String?
   preferredContact String   @default("email")
+  // Opposition explicite du client final à recevoir des messages WhatsApp de
+  // la part de cet artisan via Gestly (mot-clé STOP reçu sur ce numéro).
+  // Distinct de l'opt-out de l'artisan sur le bot (WhatsappConversation.optedOut).
+  whatsappOptOut   Boolean  @default(false)
   createdAt        DateTime @default(now())
 
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -77,10 +83,19 @@ model Devis {
   linkExpiresAt DateTime?
   linkRevoked   Boolean   @default(false)
 
-  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  client   Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // Signature électronique simple (client, via le lien public) : consentement
+  // explicite + preuve. Distinct du changement de statut manuel par l'artisan
+  // (qui reste possible pour les cas signés hors-ligne, sans ces champs).
+  signatureName      String?
+  signatureIp        String?
+  signatureUserAgent String?
+  signatureHash      String?
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client   Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
   lines    DevisLine[]
   factures Facture[]
+  relances RelanceDevis[]
 }
 
 model DevisLine {
@@ -245,6 +260,44 @@ model Relance {
   @@unique([factureId, niveau, canal])
 }
 
+// ── Relances commerciales sur devis sans réponse ────────────
+// Moteur, paramètres et historique volontairement distincts des relances
+// factures ci-dessus (cahier des charges initial : les deux doivent rester
+// séparés même s'ils partagent le même cron). Un devis quitte la cible du
+// moteur dès que son statut n'est plus "envoye" (signé, refusé, facturé,
+// repassé en brouillon) ou que son lien a expiré/été révoqué.
+model RelanceDevisSettings {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  enabled    Boolean  @default(false)
+  delaiJ1    Int      @default(3)
+  delaiJ2    Int      @default(7)
+  delaiJ3    Int      @default(14)
+  canalEmail Boolean  @default(true)
+  canalSms   Boolean  @default(false)
+  messageJ1  String?
+  messageJ2  String?
+  messageJ3  String?
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RelanceDevis {
+  id        String   @id @default(cuid())
+  devisId   String
+  niveau    Int
+  canal     String // "email" | "sms"
+  statut    String // "envoyee" | "echec"
+  erreur    String?
+  attempts  Int      @default(1)
+  envoyeeAt DateTime @default(now())
+
+  devis Devis @relation(fields: [devisId], references: [id], onDelete: Cascade)
+
+  @@unique([devisId, niveau, canal])
+}
+
 // ── Agenda ───────────────────────────────────────────────────
 model Event {
   id                    String    @id @default(cuid())
@@ -299,4 +352,61 @@ model Opportunity {
   client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
   @@index([userId, stage])
+}
+
+// ── Agent IA WhatsApp ────────────────────────────────────────
+// V1 : un seul numéro Gestly partagé entre artisans. userId reste nullable
+// tant que l'expéditeur n'a pas été identifié (numéro inconnu) — la
+// conversation n'est jamais utilisée pour agir tant que userId est vide.
+// Architecture pensée pour supporter plus tard des numéros dédiés par
+// artisan sans changer ce modèle (il suffira d'ajouter la résolution du
+// canal par phone_number_id Meta en amont, cf. lib/whatsapp/channel.ts).
+model WhatsappConversation {
+  id            String    @id @default(cuid())
+  userId        String?
+  phoneNumber   String // numéro E.164 de l'expéditeur (l'artisan)
+  // idle | collecting | awaiting_creation_confirmation | awaiting_send_confirmation | opted_out
+  state         String    @default("idle")
+  pendingDevis  Json? // brouillon structuré en cours de collecte/validation
+  optedOut      Boolean   @default(false) // STOP de l'artisan envers le bot
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  user     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages WhatsappMessage[]
+
+  @@index([phoneNumber])
+  @@index([userId])
+}
+
+model WhatsappMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  direction      String // "in" | "out"
+  type           String // "text" | "audio" | "document"
+  externalId     String?  @unique // wamid Meta — garantit le dédoublonnage
+  content        String   @db.Text
+  createdAt      DateTime @default(now())
+
+  conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  job          WhatsappJob?
+}
+
+// File d'attente légère pour le traitement en arrière-plan (transcription,
+// IA, PDF, envoi) : le webhook répond à Meta en quelques centaines de ms et
+// planifie ce job ; un cron de secours reprend les jobs bloqués ou en échec.
+// Pas de file externe (Redis/BullMQ) pour la V1 — volume trop faible pour le
+// justifier, ce pattern cron+statut est déjà celui des relances.
+model WhatsappJob {
+  id        String   @id @default(cuid())
+  messageId String   @unique
+  status    String   @default("pending") // pending | processing | done | failed
+  attempts  Int      @default(0)
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  message WhatsappMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([status])
 }
