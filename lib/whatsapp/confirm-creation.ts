@@ -87,12 +87,26 @@ export async function confirmDevisCreation(
         clientId = newClient.id;
       }
 
+      // Contrainte de schéma (revue et confirmée à l'étape 6, non modifiée) :
+      // DevisLine.quantity et DevisLine.unitPriceHT sont tous deux des Float
+      // NON NULLABLES côté Prisma (prisma/schema.prisma) — il n'existe
+      // aujourd'hui aucune façon de stocker "seulement un montant total
+      // donné, sans prix unitaire" sans choisir une paire quantité/prix
+      // unitaire. Reformer le schéma pour accepter un montant "libre" (sans
+      // ventilation) est possible mais hors périmètre de cette étape.
+      //
+      // Comportement le plus fidèle retenu avec cette contrainte : ne
+      // JAMAIS modifier un prix donné explicitement (prixUnitaire.value est
+      // toujours utilisé tel quel s'il existe) ; seulement quand aucun prix
+      // unitaire n'a été donné, le déduire par arithmétique exacte à partir
+      // du montant total et de la quantité déjà connus (montant/quantité) —
+      // ce n'est pas une supposition sur ce que l'artisan a voulu dire,
+      // c'est la seule décomposition qui reproduit EXACTEMENT le montant
+      // total fourni dans le schéma quantité×prix imposé. Si aucune
+      // quantité n'a été donnée non plus, elle vaut 1 (une seule prestation
+      // globale) — c'est la décomposition la plus neutre possible.
       const lines: CreateDevisLineInput[] = pendingDevis.lignes.map((l) => {
         const quantity = l.quantite.value ?? 1;
-        // Si seul un montant total est connu (pas de prix unitaire), le
-        // prix unitaire se déduit par arithmétique exacte (montant/quantité)
-        // — ce n'est pas une supposition métier, juste la représentation
-        // correcte d'un total déjà connu dans un schéma quantité×prix.
         const unitPriceHT = l.prixUnitaire.value ?? (l.montant.value !== null ? l.montant.value / quantity : 0);
         return {
           description: l.description,
