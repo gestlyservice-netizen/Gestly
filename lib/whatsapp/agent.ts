@@ -121,7 +121,11 @@ export async function processWhatsappJob(jobId: string): Promise<boolean> {
 //
 // Retourne null pour signifier "aucune réponse à envoyer" (silence) —
 // distinct d'une chaîne vide, qui resterait un message WhatsApp réel.
-async function buildReply(
+// Exporté uniquement pour les tests (lib/whatsapp/agent.test.ts) : c'est le
+// point d'entrée qui applique réellement l'ordre des garde-fous, donc celui
+// qu'il faut exercer directement plutôt que de reconstruire tout le pipeline
+// (claimJob, WhatsappJob, envoi Meta...) dans chaque test.
+export async function buildReply(
   message: WhatsappMessage,
   conversationId: string,
   userId: string,

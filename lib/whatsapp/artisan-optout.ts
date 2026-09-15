@@ -11,7 +11,10 @@ import { prisma } from "@/lib/prisma";
 // interprétée comme une commande, pour éviter tout faux positif sur un
 // message métier normal.
 function normalizeCommand(text: string): string {
-  return text.trim().toLowerCase().replace(/[.!?…]+$/, "");
+  // Espace + ponctuation finale retirés ensemble (pas juste la ponctuation) :
+  // la typographie française usuelle place une espace avant "!"/"?" ("Stop !"),
+  // qui doit être traitée comme "stop" au même titre que "Stop!" ou "Stop".
+  return text.trim().toLowerCase().replace(/[\s.!?…]+$/, "");
 }
 
 export function isStopCommand(text: string): boolean {
