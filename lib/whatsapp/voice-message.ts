@@ -145,7 +145,7 @@ export async function resolveVoiceMessageText(
     // audioBuffer ne vit qu'en mémoire ici — jamais écrit sur disque, jamais
     // stocké durablement ; il sort de portée (et devient éligible au
     // ramasse-miettes) dès la fin de cette fonction.
-    const result = await transcribeAudio(audioBuffer, userId, { model: opts.model }); // erreurs transitoires levées telles quelles
+    const result = await transcribeAudio(audioBuffer, userId, { model: opts.model, messageId: message.id }); // erreurs transitoires levées telles quelles
     const elapsedMs = Date.now() - startedAt;
 
     // Instrumentation minimale pour mesurer l'usage réel (coût/latence)

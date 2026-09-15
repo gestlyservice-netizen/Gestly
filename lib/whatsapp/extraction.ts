@@ -123,7 +123,14 @@ const MAX_ATTEMPTS = 2;
 // lib/ai/config.ts — l'agent n'a jamais à connaître le nom du modèle.
 export async function extractDevisInfo(
   input: ExtractionInput,
-  opts: { model?: LanguageModel | string } = {}
+  // messageId : uniquement pour rattacher les événements AiUsageEvent
+  // générés par CET appel au WhatsappMessage d'origine (étape 8bis) —
+  // n'affecte jamais la logique d'extraction elle-même. Le contrôle
+  // d'idempotence (ne jamais rappeler le modèle si un résultat existe déjà
+  // pour ce message) est fait par l'appelant, cf.
+  // lib/whatsapp/extraction-checkpoint.ts — cette fonction reste un simple
+  // appel réseau, jamais consciente d'un éventuel résultat déjà en cache.
+  opts: { model?: LanguageModel | string; messageId?: string } = {}
 ): Promise<RawExtraction> {
   if (opts.model === undefined && !isAiConfigured()) {
     // Échoue vite et proprement plutôt que de tenter un appel réseau voué à
@@ -151,10 +158,11 @@ export async function extractDevisInfo(
         success: true,
         inputTokens: result.usage?.inputTokens ?? null,
         outputTokens: result.usage?.outputTokens ?? null,
+        messageId: opts.messageId ?? null,
       });
       return result.object as RawExtraction;
     } catch (err) {
-      await recordAiUsage({ userId: input.userId, kind: "extraction", success: false });
+      await recordAiUsage({ userId: input.userId, kind: "extraction", success: false, messageId: opts.messageId ?? null });
       lastError = err;
     }
   }

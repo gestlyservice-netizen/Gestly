@@ -39,7 +39,23 @@ describe("transcribeAudio — comptage d'usage IA", () => {
       kind: "transcription",
       success: true,
       audioSeconds: 13, // arrondi de 12.6
+      messageId: null,
     });
+  });
+
+  it("rattache l'événement au WhatsappMessage d'origine quand messageId est fourni (étape 8bis)", async () => {
+    const model = mockModel(async () => ({
+      text: "devis peinture salon",
+      segments: [],
+      language: "fr",
+      durationInSeconds: 4,
+      warnings: [],
+      response: { timestamp: new Date(), modelId: "mock", headers: {} },
+    }));
+
+    await transcribeAudio(new Uint8Array([1]), "user_1", { model, messageId: "msg_42" });
+
+    expect(recordAiUsageMock).toHaveBeenCalledWith(expect.objectContaining({ messageId: "msg_42" }));
   });
 
   it("ne journalise jamais le texte transcrit, seulement des métadonnées", async () => {
@@ -69,7 +85,13 @@ describe("transcribeAudio — comptage d'usage IA", () => {
     const result = await transcribeAudio(new Uint8Array([1]), "user_1", { model });
 
     expect(result.text).toBe("");
-    expect(recordAiUsageMock).toHaveBeenCalledWith({ userId: "user_1", kind: "transcription", success: true, audioSeconds: null });
+    expect(recordAiUsageMock).toHaveBeenCalledWith({
+      userId: "user_1",
+      kind: "transcription",
+      success: true,
+      audioSeconds: null,
+      messageId: null,
+    });
   });
 
   it("un échec définitif après retries lève TranscriptionError et comptabilise chaque tentative réelle en échec", async () => {

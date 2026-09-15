@@ -40,10 +40,10 @@ vi.mock("@/lib/whatsapp/send", () => ({ sendWhatsappText: vi.fn() }));
 import { buildReply } from "@/lib/whatsapp/agent";
 
 function textMessage(content: string): WhatsappMessage {
-  return { type: "text", content } as unknown as WhatsappMessage;
+  return { id: "msg_1", type: "text", content } as unknown as WhatsappMessage;
 }
 function audioMessage(): WhatsappMessage {
-  return { type: "audio", content: "" } as unknown as WhatsappMessage;
+  return { id: "msg_1", type: "audio", content: "" } as unknown as WhatsappMessage;
 }
 
 beforeEach(() => {
@@ -95,7 +95,7 @@ describe("buildReply — ordre des garde-fous (étape 8)", () => {
   it("START reçu hors opt-out n'est pas une commande (rien à réactiver) : traité comme message normal", async () => {
     await buildReply(textMessage("START"), "conv_1", "user_1", false);
     expect(enableArtisanBotMock).not.toHaveBeenCalled();
-    expect(processTextMessageMock).toHaveBeenCalledWith("conv_1", "user_1", "START");
+    expect(processTextMessageMock).toHaveBeenCalledWith("conv_1", "user_1", "msg_1", "START");
   });
 
   // Test requis #4
@@ -121,13 +121,13 @@ describe("buildReply — ordre des garde-fous (étape 8)", () => {
 
   it("message texte normal, quota disponible -> délègue à processTextMessage", async () => {
     const reply = await buildReply(textMessage("Devis pour M. Dupont"), "conv_1", "user_1", false);
-    expect(processTextMessageMock).toHaveBeenCalledWith("conv_1", "user_1", "Devis pour M. Dupont");
+    expect(processTextMessageMock).toHaveBeenCalledWith("conv_1", "user_1", "msg_1", "Devis pour M. Dupont");
     expect(reply).toBe("réponse IA");
   });
 
   it("message vocal transcrit -> traité comme un message texte ordinaire ensuite", async () => {
     resolveVoiceMessageTextMock.mockResolvedValue({ kind: "transcribed", text: "devis peinture 500 euros" });
     await buildReply(audioMessage(), "conv_1", "user_1", false);
-    expect(processTextMessageMock).toHaveBeenCalledWith("conv_1", "user_1", "devis peinture 500 euros");
+    expect(processTextMessageMock).toHaveBeenCalledWith("conv_1", "user_1", "msg_1", "devis peinture 500 euros");
   });
 });

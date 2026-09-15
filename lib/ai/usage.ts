@@ -32,6 +32,11 @@ export interface AiUsageEventInput {
   inputTokens?: number | null;
   outputTokens?: number | null;
   audioSeconds?: number | null;
+  // Association explicite avec le WhatsappMessage entrant qui a déclenché
+  // cet appel (étape 8bis) — permet de retrouver, pour un message donné,
+  // tous les appels IA réels qu'il a réellement coûtés. Optionnel : reste
+  // sans effet sur le comptage/plafond, qui restent filtrés par userId.
+  messageId?: string | null;
 }
 
 // Enregistre un appel IA réellement effectué. Appelé au plus près de l'appel
@@ -52,6 +57,7 @@ export async function recordAiUsage(event: AiUsageEventInput): Promise<void> {
       inputTokens: event.inputTokens ?? null,
       outputTokens: event.outputTokens ?? null,
       audioSeconds: event.audioSeconds ?? null,
+      messageId: event.messageId ?? null,
     },
   });
 }

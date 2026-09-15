@@ -62,7 +62,26 @@ describe("extractDevisInfo — comptage d'usage IA", () => {
       success: true,
       inputTokens: 55,
       outputTokens: 21,
+      messageId: null,
     });
+  });
+
+  it("rattache l'événement au WhatsappMessage d'origine quand messageId est fourni (étape 8bis)", async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: async (): Promise<LanguageModelV4GenerateResult> => ({
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: {
+          inputTokens: { total: 1, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 1, text: undefined, reasoning: undefined },
+        },
+        content: [{ type: "text", text: JSON.stringify(VALID_OBJECT) }],
+        warnings: [],
+      }),
+    });
+
+    await extractDevisInfo(baseInput(), { model, messageId: "msg_42" });
+
+    expect(recordAiUsageMock).toHaveBeenCalledWith(expect.objectContaining({ messageId: "msg_42" }));
   });
 
   it("un appel qui échoue puis réussit au 2e essai enregistre 2 événements réels distincts (1 échec + 1 succès)", async () => {
@@ -86,7 +105,12 @@ describe("extractDevisInfo — comptage d'usage IA", () => {
     await extractDevisInfo(baseInput(), { model });
 
     expect(recordAiUsageMock).toHaveBeenCalledTimes(2);
-    expect(recordAiUsageMock).toHaveBeenNthCalledWith(1, { userId: "user_1", kind: "extraction", success: false });
+    expect(recordAiUsageMock).toHaveBeenNthCalledWith(1, {
+      userId: "user_1",
+      kind: "extraction",
+      success: false,
+      messageId: null,
+    });
     expect(recordAiUsageMock.mock.calls[1][0]).toMatchObject({ success: true });
   });
 

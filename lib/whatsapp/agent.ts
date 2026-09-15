@@ -161,13 +161,16 @@ export async function buildReply(
   }
 
   if (message.type !== "audio") {
-    return processTextMessage(conversationId, userId, message.content);
+    return processTextMessage(conversationId, userId, message.id, message.content);
   }
 
   const voice = await resolveVoiceMessageText(message, userId);
 
   if (voice.kind === "transcribed") {
-    return processTextMessage(conversationId, userId, voice.text);
+    // Même WhatsappMessage (celui du vocal) sert de clé de checkpoint pour
+    // l'extraction — un message entrant, qu'il soit texte ou vocal
+    // transcrit, ne produit jamais plus d'une extraction réelle.
+    return processTextMessage(conversationId, userId, message.id, voice.text);
   }
 
   if (voice.reason === "media_not_found") return buildVoiceMediaNotFoundReply();

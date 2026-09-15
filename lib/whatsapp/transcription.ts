@@ -35,7 +35,12 @@ const MAX_ATTEMPTS = 2;
 export async function transcribeAudio(
   audio: Buffer | Uint8Array,
   userId: string,
-  opts: { model?: TranscriptionModel | string } = {}
+  // messageId : rattache les événements AiUsageEvent générés au
+  // WhatsappMessage d'origine (étape 8bis, même esprit que extraction.ts) —
+  // la déduplication réelle (jamais rappeler l'API pour un message déjà
+  // transcrit) reste entièrement gérée en amont par voice-message.ts via
+  // transcriptionStatus, inchangé ici.
+  opts: { model?: TranscriptionModel | string; messageId?: string } = {}
 ): Promise<TranscriptionResult> {
   if (opts.model === undefined && !isAiConfigured()) {
     // Échoue vite plutôt que de tenter un appel réseau voué à l'échec —
@@ -74,6 +79,7 @@ export async function transcribeAudio(
           transcriptionResult.durationInSeconds !== null
             ? Math.round(transcriptionResult.durationInSeconds)
             : null,
+        messageId: opts.messageId ?? null,
       });
       return transcriptionResult;
     } catch (err) {
@@ -84,10 +90,10 @@ export async function transcribeAudio(
       // que comme un échec technique à retenter — l'appel au fournisseur a
       // bien eu lieu et abouti, donc compté en succès.
       if (err instanceof NoTranscriptGeneratedError) {
-        await recordAiUsage({ userId, kind: "transcription", success: true, audioSeconds: null });
+        await recordAiUsage({ userId, kind: "transcription", success: true, audioSeconds: null, messageId: opts.messageId ?? null });
         return { text: "", durationInSeconds: null, language: null };
       }
-      await recordAiUsage({ userId, kind: "transcription", success: false });
+      await recordAiUsage({ userId, kind: "transcription", success: false, messageId: opts.messageId ?? null });
       lastError = err;
     }
   }

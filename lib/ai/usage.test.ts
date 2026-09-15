@@ -61,16 +61,22 @@ describe("recordAiUsage", () => {
         inputTokens: 120,
         outputTokens: 40,
         audioSeconds: null,
+        messageId: null,
       },
     });
   });
 
-  it("ne stocke jamais de contenu (texte/transcript), uniquement des métadonnées numériques", async () => {
+  it("ne stocke jamais de contenu (texte/transcript), uniquement des métadonnées numériques et l'association au message", async () => {
     await recordAiUsage({ userId: "user_1", kind: "transcription", success: true, audioSeconds: 12 });
     const payload = createMock.mock.calls[0][0].data;
     expect(Object.keys(payload).sort()).toEqual(
-      ["audioSeconds", "inputTokens", "kind", "outputTokens", "success", "userId"].sort()
+      ["audioSeconds", "inputTokens", "kind", "messageId", "outputTokens", "success", "userId"].sort()
     );
+  });
+
+  it("rattache l'événement au WhatsappMessage d'origine quand messageId est fourni", async () => {
+    await recordAiUsage({ userId: "user_1", kind: "extraction", success: true, messageId: "msg_42" });
+    expect(createMock.mock.calls[0][0].data.messageId).toBe("msg_42");
   });
 });
 

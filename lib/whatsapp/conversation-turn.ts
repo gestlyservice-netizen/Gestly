@@ -1,6 +1,6 @@
 import type { LanguageModel } from "ai";
 import { prisma } from "@/lib/prisma";
-import { extractDevisInfo } from "@/lib/whatsapp/extraction";
+import { resolveExtractionResult } from "@/lib/whatsapp/extraction-checkpoint";
 import { resolveClient } from "@/lib/whatsapp/client-resolution";
 import { confirmDevisCreation } from "@/lib/whatsapp/confirm-creation";
 import { sendDevisToClient } from "@/lib/whatsapp/send-devis";
@@ -45,6 +45,12 @@ const MAX_STUCK_TURNS = 3;
 export async function processTextMessage(
   conversationId: string,
   userId: string,
+  // Id du WhatsappMessage entrant à l'origine de ce tour (texte, ou audio
+  // déjà transcrit) — clé du checkpoint d'idempotence de l'extraction
+  // (étape 8bis, cf. lib/whatsapp/extraction-checkpoint.ts). Un retry du
+  // même message réutilise son résultat ; un nouveau message (nouvel id)
+  // déclenche toujours une nouvelle extraction.
+  messageId: string,
   messageContent: string,
   opts: { model?: LanguageModel | string } = {}
 ): Promise<string> {
@@ -78,8 +84,12 @@ export async function processTextMessage(
 
   // Une extraction qui échoue remonte telle quelle jusqu'à processWhatsappJob,
   // qui marque le job 'failed' sans rien perdre — le message et la
-  // conversation restent intacts pour un retry ultérieur.
-  const raw = await extractDevisInfo(
+  // conversation restent intacts pour un retry ultérieur. Si un résultat
+  // valide existe déjà pour ce messageId (retry après un échec plus loin
+  // dans le pipeline), resolveExtractionResult le réutilise directement
+  // sans jamais rappeler le modèle (étape 8bis).
+  const raw = await resolveExtractionResult(
+    messageId,
     { userId, message: messageContent, recentHistory, currentPendingDevis },
     opts
   );

@@ -329,6 +329,20 @@ model Notification {
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
+  // Étape 8bis — unicité anti-doublon EN CONCURRENCE pour createNotificationOnce
+  // (lib/notifications.ts), garantie au niveau base de données plutôt que par
+  // la seule convention applicative (findFirst puis create n'est pas atomique
+  // et pouvait produire un doublon sous course concurrente). Renseigné
+  // UNIQUEMENT par createNotificationOnce (= `${type}:${link}`), toujours
+  // null pour createNotification — notamment les notifications "relance_*"
+  // (lib/relances/engine.ts), qui réutilisent légitimement le même (userId,
+  // type, link) à chaque niveau de relance et ne doivent JAMAIS être
+  // contraintes par cette unicité. L'index unique réel est un index PARTIEL
+  // (WHERE "dedupeKey" IS NOT NULL) créé en SQL brut — non représentable par
+  // @@unique dans ce schéma Prisma — cf.
+  // prisma/manual-migrations/20260915_step8bis_notification_dedupe_up.sql.
+  dedupeKey String?
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
@@ -420,8 +434,34 @@ model WhatsappMessage {
   transcriptionModel  String? // modèle utilisé — pour mesurer coûts/usage réels
   transcriptionMs     Int? // temps de traitement de la transcription (ms)
 
-  conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  job          WhatsappJob?
+  // ── Checkpoint d'extraction IA (étape 8bis — idempotence) ─────────────
+  // Même principe que transcriptionStatus, pour le même besoin : ne jamais
+  // rappeler le modèle une seconde fois pour CE message si un résultat
+  // valide a déjà été obtenu, y compris quand un retry de job intervient
+  // APRÈS l'extraction (ex. l'envoi de la réponse WhatsApp échoue). null =
+  // pas encore tenté, "processing" = réclamé atomiquement par un worker,
+  // "done" = résultat validé disponible dans extractionResult. Pas d'état
+  // "failed" persistant ici (contrairement à transcriptionStatus) : un
+  // échec d'extraction n'est jamais définitif de ce point de vue (aucun cas
+  // "ça ne marchera jamais" comme pour l'audio), donc on revient simplement
+  // à null pour permettre un nouvel essai, au lieu de garder un état mort.
+  extractionStatus String?
+  // Résultat structuré validé (RawExtraction, cf. lib/whatsapp/pending-devis.ts)
+  // — jamais le texte brut renvoyé par le modèle, uniquement les champs
+  // déjà validés par le schéma Zod. Suffisant pour rejouer déterministement
+  // la suite du pipeline (fusion du brouillon, confirmation...) sans jamais
+  // raccéder au fournisseur IA pour ce message.
+  extractionResult Json?
+  extractionModel  String? // modèle utilisé — même esprit que transcriptionModel
+
+  // Nécessaire pour détecter un claim "processing" resté bloqué (crash
+  // pendant l'appel modèle) — même pattern que WhatsappJob/WhatsappConversation/
+  // WhatsappSend, absent jusqu'ici de ce modèle car non nécessaire avant.
+  updatedAt DateTime @updatedAt
+
+  conversation  WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  job           WhatsappJob?
+  aiUsageEvents AiUsageEvent[]
 }
 
 // File d'attente légère pour le traitement en arrière-plan (transcription,
@@ -493,7 +533,23 @@ model AiUsageEvent {
   audioSeconds Int?
   createdAt    DateTime @default(now())
 
+  // Association explicite (étape 8bis) entre l'événement d'usage et le
+  // WhatsappMessage entrant qui l'a déclenché — nullable (un événement n'est
+  // pas toujours rattachable à un message précis) et SetNull à la
+  // suppression : un événement d'usage est une trace d'audit/coût réel, elle
+  // ne doit jamais disparaître si son message source est supprimé.
+  // Volontairement PAS de contrainte d'unicité (messageId, kind) : un même
+  // message peut légitimement produire plusieurs événements réels pour un
+  // seul appel logique (ex. un essai échoué suivi d'un essai réussi, cf.
+  // MAX_ATTEMPTS dans lib/whatsapp/extraction.ts) — l'idempotence contre les
+  // retries de JOB (aucun réappel du modèle une fois le résultat obtenu) est
+  // garantie en amont par le claim atomique sur WhatsappMessage.extractionStatus
+  // (lib/whatsapp/extraction-checkpoint.ts), pas par une contrainte ici.
+  messageId String?
+  message   WhatsappMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([messageId])
 }

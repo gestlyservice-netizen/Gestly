@@ -1,13 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 
-const findFirstMock = vi.fn();
-const createMock = vi.fn();
+// Fake table reproduisant la vraie contrainte unique partielle (userId,
+// dedupeKey) posée en base par lib/notifications.ts (étape 8bis) — cohérent
+// avec lib/notifications.test.ts, qui teste ce mécanisme en détail.
+const rows: Array<{ userId: string; dedupeKey: string | null }> = [];
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     notification: {
-      findFirst: (...args: unknown[]) => findFirstMock(...args),
-      create: (...args: unknown[]) => createMock(...args),
+      create: async ({ data }: { data: { userId: string; dedupeKey?: string | null } }) => {
+        const dedupeKey = data.dedupeKey ?? null;
+        if (dedupeKey !== null && rows.some((r) => r.userId === data.userId && r.dedupeKey === dedupeKey)) {
+          throw new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+            code: "P2002",
+            clientVersion: "test",
+          });
+        }
+        rows.push({ userId: data.userId, dedupeKey });
+        return data;
+      },
     },
   },
 }));
@@ -15,33 +27,26 @@ vi.mock("@/lib/prisma", () => ({
 import { escalateToArtisan } from "@/lib/whatsapp/escalation";
 
 beforeEach(() => {
-  findFirstMock.mockReset();
-  createMock.mockReset();
+  rows.length = 0;
 });
 
 describe("escalateToArtisan (mécanisme 4, anti-spam)", () => {
   // Test requis #15 : jamais dix notifications pour le même incident.
   it("ne crée qu'une seule notification pour le même incident, malgré plusieurs appels (retries)", async () => {
-    findFirstMock.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "notif_1" });
-
     await escalateToArtisan("user_1", "transcription_echec", "msg_1", "Un message vocal n'a pas pu être transcrit.");
     await escalateToArtisan("user_1", "transcription_echec", "msg_1", "Un message vocal n'a pas pu être transcrit.");
 
-    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(rows).toHaveLength(1);
   });
 
   it("encode l'identifiant de l'INCIDENT dans le lien, jamais un id de tentative", async () => {
-    findFirstMock.mockResolvedValue(null);
     await escalateToArtisan("user_1", "envoi_echec", "devis_42", "échec envoi");
-    expect(findFirstMock).toHaveBeenCalledWith({
-      where: { userId: "user_1", type: "whatsapp_escalade", link: "/dashboard/devis/devis_42" },
-    });
+    expect(rows[0].dedupeKey).toBe("whatsapp_escalade:/dashboard/devis/devis_42");
   });
 
   it("deux incidents distincts (link différent) produisent chacun leur propre notification", async () => {
-    findFirstMock.mockResolvedValue(null);
     await escalateToArtisan("user_1", "envoi_echec", "devis_1", "échec envoi devis_1");
     await escalateToArtisan("user_1", "envoi_echec", "devis_2", "échec envoi devis_2");
-    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(rows).toHaveLength(2);
   });
 });
