@@ -96,6 +96,7 @@ vi.mock("@/lib/whatsapp/extraction", () => ({
 vi.mock("@/lib/ai/config", () => ({
   getWhatsappExtractionModel: () => "openai/gpt-4o-mini",
   DEFAULT_TVA_RATE: 20,
+  describeModel: (model: unknown) => (typeof model === "string" ? model : "openai/gpt-4o-mini"),
 }));
 
 import { resolveExtractionResult } from "@/lib/whatsapp/extraction-checkpoint";

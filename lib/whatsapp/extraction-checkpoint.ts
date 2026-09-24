@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { extractDevisInfo, type ExtractionInput } from "@/lib/whatsapp/extraction";
 import type { RawExtraction } from "@/lib/whatsapp/pending-devis";
-import { getWhatsappExtractionModel } from "@/lib/ai/config";
+import { getWhatsappExtractionModel, describeModel } from "@/lib/ai/config";
 
 // Idempotence de l'extraction IA au niveau du WhatsappMessage entrant
 // (étape 8bis). Rôle strictement limité à : réclamer atomiquement le droit
@@ -84,7 +84,7 @@ export async function resolveExtractionResult(
   // engagé. Toute erreur du pipeline APRÈS ce point ne doit plus jamais
   // redéclencher d'appel modèle pour ce message — seule la suite du
   // traitement (fusion, confirmation, envoi...) doit être retentée.
-  const modelLabel = typeof opts.model === "string" ? opts.model : opts.model ? "modèle injecté (test)" : getWhatsappExtractionModel();
+  const modelLabel = describeModel(opts.model ?? getWhatsappExtractionModel());
   await prisma.whatsappMessage.update({
     where: { id: messageId },
     data: {

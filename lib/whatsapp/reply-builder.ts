@@ -25,6 +25,15 @@ export function buildVoiceEmptyReply(): string {
   return "Je n'ai rien entendu dans votre message vocal. Pouvez-vous le renvoyer, ou écrire votre message directement ?";
 }
 
+// Étape 8ter — vocal reçu mais transcription jugée trop peu fiable pour être
+// exploitée (cf. isImplausibleTranscript dans voice-message.ts). Formulation
+// volontairement proche de buildVoiceEmptyReply (même action attendue : "
+// répéter"), mais distincte pour ne jamais laisser croire à l'artisan qu'on
+// n'a rien reçu du tout.
+export function buildVoiceSuspectReply(): string {
+  return "Je n'ai pas réussi à comprendre clairement votre message vocal. Pouvez-vous le répéter, ou écrire votre message directement ?";
+}
+
 // ── Réponses liées aux garde-fous (étape 8) ──────────────────────────────
 export function buildStopConfirmationReply(): string {
   return "L'assistant Gestly est désactivé pour ce numéro. Envoyez START à tout moment pour le réactiver.";

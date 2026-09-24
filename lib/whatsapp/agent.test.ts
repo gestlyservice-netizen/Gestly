@@ -130,4 +130,16 @@ describe("buildReply — ordre des garde-fous (étape 8)", () => {
     await buildReply(audioMessage(), "conv_1", "user_1", false);
     expect(processTextMessageMock).toHaveBeenCalledWith("conv_1", "user_1", "msg_1", "devis peinture 500 euros");
   });
+
+  // Étape 8ter — garde-fou anti-hallucination Whisper : vocal jugé
+  // inexploitable (débit de parole implausible) -> jamais transmis à
+  // l'extraction, donc AUCUN devis ne peut être créé à partir d'un texte
+  // halluciné (processTextMessage, seul point d'entrée vers l'extraction et
+  // la création de devis, n'est jamais appelé).
+  it("vocal jugé inexploitable (débit implausible) -> aucun appel à processTextMessage, donc aucun devis créé", async () => {
+    resolveVoiceMessageTextMock.mockResolvedValue({ kind: "failed", reason: "suspect" });
+    const reply = await buildReply(audioMessage(), "conv_1", "user_1", false);
+    expect(processTextMessageMock).not.toHaveBeenCalled();
+    expect(reply).toContain("répéter");
+  });
 });

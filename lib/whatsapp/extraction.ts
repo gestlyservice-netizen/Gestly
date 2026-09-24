@@ -43,7 +43,15 @@ export const RawExtractionSchema = z.object({
   }),
   objet: z.string().nullable(),
   descriptionTravaux: z.string().nullable(),
-  lignes: z.array(RawLineSchema).default([]),
+  // Pas de .default(...) sur ces trois champs (lignes/plusieursDevisDetectes/
+  // ambiguites) : découvert en Phase 2 de la validation pré-production
+  // (2026-09), un champ avec .default() est généré comme optionnel dans le
+  // JSON Schema envoyé au modèle, ce que le mode structured output strict
+  // d'OpenAI rejette explicitement ("'required' is required to... including
+  // every key in properties"). Tous les champs doivent être listés dans
+  // 'required' — un tableau "vide si rien à dire" reste un tableau
+  // explicitement requis, jamais un champ optionnel côté schéma API.
+  lignes: z.array(RawLineSchema),
   montantMentionne: z
     .object({
       valeur: z.number().nullable(),
@@ -51,8 +59,8 @@ export const RawExtractionSchema = z.object({
     })
     .nullable(),
   notes: z.string().nullable(),
-  plusieursDevisDetectes: z.boolean().default(false),
-  ambiguites: z.array(z.string()).default([]),
+  plusieursDevisDetectes: z.boolean(),
+  ambiguites: z.array(z.string()),
 });
 
 export class ExtractionError extends Error {

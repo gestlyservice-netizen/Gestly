@@ -3,12 +3,44 @@ import type { TranscriptionModel } from "ai";
 import { prisma } from "@/lib/prisma";
 import { getMediaMetadata, downloadMediaBuffer, MediaTooLargeError } from "@/lib/whatsapp/media";
 import { transcribeAudio } from "@/lib/whatsapp/transcription";
-import { getWhatsappTranscriptionModel } from "@/lib/ai/config";
+import { getWhatsappTranscriptionModel, describeModel } from "@/lib/ai/config";
 import { escalateToArtisan } from "@/lib/whatsapp/escalation";
 
 export type VoiceResolution =
   | { kind: "transcribed"; text: string }
-  | { kind: "failed"; reason: "media_not_found" | "unsupported_format" | "too_large" | "empty" };
+  | { kind: "failed"; reason: "media_not_found" | "unsupported_format" | "too_large" | "empty" | "suspect" };
+
+// Garde-fou contre les hallucinations Whisper sur silence/bruit (trouvé en
+// Phase 3 de la validation pré-production, 2026-09 : un vocal de bruit blanc
+// pur a produit "❤️ par SousTitreur.com" — un texte non vide, donc jamais
+// intercepté par le contrôle !result.text existant). Le SDK IA (transcribe())
+// analyse pourtant en interne les signaux natifs de confiance Whisper
+// (no_speech_prob, avg_logprob par segment) mais les jette avant de nous les
+// exposer — les recréer nous-mêmes obligerait à contourner l'abstraction du
+// SDK pour un unique signal, disproportionné pour la V1. On utilise à la
+// place ce qui est déjà dans notre pipeline : la durée réelle de l'audio et
+// la longueur du texte obtenu.
+//
+// Principe : aucun débit de parole humain naturel ne dépasse durablement
+// ~20-22 caractères/seconde, même très rapide. Un texte nettement plus dense
+// que ça pour la durée annoncée n'a pas pu être réellement prononcé — c'est
+// un signal générique (jamais une liste de formulations connues), qui ne
+// dépend ni de la langue ni du contenu exact halluciné. Marge large (30)
+// choisie à partir des transcriptions réelles obtenues en Phase 3 (max
+// observé ~18 car/s sur du vrai français, contre ~73 car/s sur l'artefact
+// de bruit) — largement assez conservateur pour ne jamais rejeter à tort un
+// vrai message, même très court.
+const MAX_PLAUSIBLE_CHARS_PER_SECOND = 30;
+// En-deçà, la durée mesurée est trop imprécise pour calculer un débit
+// fiable — dans le doute, on ne rejette jamais sur ce seul signal.
+const MIN_DURATION_FOR_RATE_CHECK_SECONDS = 0.3;
+
+export function isImplausibleTranscript(text: string, durationInSeconds: number | null): boolean {
+  if (!text || durationInSeconds === null || durationInSeconds < MIN_DURATION_FOR_RATE_CHECK_SECONDS) {
+    return false;
+  }
+  return text.length / durationInSeconds > MAX_PLAUSIBLE_CHARS_PER_SECOND;
+}
 
 const SUPPORTED_AUDIO_MIME_PREFIXES = [
   "audio/ogg",
@@ -140,7 +172,7 @@ export async function resolveVoiceMessageText(
     }
 
     const model = opts.model ?? getWhatsappTranscriptionModel();
-    const modelLabel = typeof model === "string" ? model : "modèle injecté (test)";
+    const modelLabel = describeModel(model);
     const startedAt = Date.now();
     // audioBuffer ne vit qu'en mémoire ici — jamais écrit sur disque, jamais
     // stocké durablement ; il sort de portée (et devient éligible au
@@ -166,6 +198,29 @@ export async function resolveVoiceMessageText(
         },
       });
       return { kind: "failed", reason: "empty" };
+    }
+
+    // Silence/bruit manifeste faussement transcrit par Whisper (texte non
+    // vide mais débit de parole implausible) : jamais transmis à
+    // l'extraction — mieux vaut demander à l'artisan de répéter que
+    // d'inventer une intention à partir d'un texte halluciné. Définitif
+    // (comme "empty") : rejouer la même transcription produirait très
+    // probablement le même artefact, aucun intérêt à un retry automatique.
+    if (isImplausibleTranscript(result.text, result.durationInSeconds)) {
+      console.warn(
+        `[whatsapp/voice] transcription jugée implausible (débit anormal) user=${userId} messageId=${message.id} duree_audio=${result.durationInSeconds ?? "?"}s longueur_texte=${result.text.length}`
+      );
+      await prisma.whatsappMessage.update({
+        where: { id: message.id },
+        data: {
+          transcriptionStatus: "failed",
+          mimeType: metadata.mimeType,
+          transcriptionModel: modelLabel,
+          transcriptionMs: elapsedMs,
+          durationSeconds: result.durationInSeconds !== null ? Math.round(result.durationInSeconds) : null,
+        },
+      });
+      return { kind: "failed", reason: "suspect" };
     }
 
     await prisma.whatsappMessage.update({

@@ -11,6 +11,7 @@ import {
   buildVoiceUnsupportedFormatReply,
   buildVoiceTooLargeReply,
   buildVoiceEmptyReply,
+  buildVoiceSuspectReply,
   buildStopConfirmationReply,
   buildStartConfirmationReply,
   buildAiQuotaExceededReply,
@@ -176,5 +177,6 @@ export async function buildReply(
   if (voice.reason === "media_not_found") return buildVoiceMediaNotFoundReply();
   if (voice.reason === "unsupported_format") return buildVoiceUnsupportedFormatReply();
   if (voice.reason === "too_large") return buildVoiceTooLargeReply();
+  if (voice.reason === "suspect") return buildVoiceSuspectReply();
   return buildVoiceEmptyReply();
 }

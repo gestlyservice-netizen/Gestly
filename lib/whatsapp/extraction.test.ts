@@ -11,6 +11,37 @@ vi.mock("@/lib/ai/usage", () => ({
 import { extractDevisInfo } from "@/lib/whatsapp/extraction";
 import { emptyPendingDevis } from "@/lib/whatsapp/pending-devis";
 
+// Toute clé listée dans "properties" à un niveau d'objet donné du JSON
+// Schema doit aussi apparaître dans "required" à ce même niveau : c'est
+// exactement la contrainte imposée par le mode structured output STRICT
+// d'OpenAI ("'required' is required to... including every key in
+// properties"). Un champ Zod avec .default(...) est considéré "optional"
+// par le convertisseur JSON Schema interne du SDK (schema.isOptional() ===
+// true pour ZodDefault) et disparaît alors de "required" — ce qui fait
+// échouer l'appel réel à l'API (découvert en Phase 2 de la validation
+// pré-production, 2026-09, sur les champs lignes/plusieursDevisDetectes/
+// ambiguites). Cette fonction détecte tout futur .default() réintroduit par
+// erreur, sans avoir besoin d'un vrai appel réseau.
+function findMissingRequiredKeys(schema: unknown, path = "$"): string[] {
+  if (!schema || typeof schema !== "object") return [];
+  const node = schema as Record<string, unknown>;
+  const violations: string[] = [];
+
+  if (node.type === "object" && node.properties && typeof node.properties === "object") {
+    const propertyKeys = Object.keys(node.properties as Record<string, unknown>);
+    const required = new Set((node.required as string[] | undefined) ?? []);
+    for (const key of propertyKeys) {
+      if (!required.has(key)) violations.push(`${path}.${key}`);
+    }
+    for (const key of propertyKeys) {
+      violations.push(...findMissingRequiredKeys((node.properties as Record<string, unknown>)[key], `${path}.${key}`));
+    }
+  }
+  if (node.items) violations.push(...findMissingRequiredKeys(node.items, `${path}[]`));
+
+  return violations;
+}
+
 const VALID_OBJECT = {
   intent: "devis",
   reponseConfirmation: null,
@@ -35,6 +66,33 @@ function baseInput() {
 
 beforeEach(() => {
   recordAiUsageMock.mockReset();
+});
+
+// Régression (bug réel trouvé en Phase 2, appel OpenAI réel — cf.
+// commentaire sur RawExtractionSchema dans lib/whatsapp/extraction.ts) :
+// avec .default() sur lignes/plusieursDevisDetectes/ambiguites, l'appel
+// réel à OpenAI échouait systématiquement avec "Invalid schema for
+// response_format... Missing 'lignes'". Ce test inspecte le JSON Schema
+// RÉELLEMENT construit par le SDK pour cette requête (capturé par le mock,
+// sans appel réseau) plutôt que de supposer la forme du schéma.
+it("le JSON Schema envoyé au modèle liste chaque propriété dans 'required' (exigence structured output strict d'OpenAI)", async () => {
+  const model = new MockLanguageModelV4({
+    doGenerate: async (): Promise<LanguageModelV4GenerateResult> => ({
+      finishReason: { unified: "stop", raw: "stop" },
+      usage: {
+        inputTokens: { total: 1, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 1, text: undefined, reasoning: undefined },
+      },
+      content: [{ type: "text", text: JSON.stringify(VALID_OBJECT) }],
+      warnings: [],
+    }),
+  });
+
+  await extractDevisInfo(baseInput(), { model });
+
+  const call = model.doGenerateCalls[0] as unknown as { responseFormat?: { schema?: unknown } };
+  const violations = findMissingRequiredKeys(call.responseFormat?.schema);
+  expect(violations).toEqual([]);
 });
 
 describe("extractDevisInfo — comptage d'usage IA", () => {
