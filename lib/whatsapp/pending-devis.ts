@@ -166,6 +166,25 @@ export interface RawExtraction {
   ambiguites: string[];
 }
 
+// DETTE TECHNIQUE (trouvée en Phase 2 de la validation pré-production,
+// 2026-09, appel OpenAI réel) : toute valeur non nulle renvoyée par
+// l'extraction est marquée source="artisan", y compris quand le modèle l'a
+// recopiée du brouillon déjà fourni en contexte (cf. buildPrompt dans
+// extraction.ts, qui inclut les lignes déjà connues) plutôt que réellement
+// redite dans le message courant. Observé concrètement sur un tour de
+// correction de prix : le modèle a réinclus une TVA déjà connue du contexte
+// sans que l'artisan ne la répète, et mergeSourcedField l'a quand même
+// étiquetée "artisan". La valeur numérique restait correcte dans ce cas
+// (imprécision de provenance, pas une donnée fausse), mais le risque
+// existe : si le contexte contenait une valeur erronée, un simple echo du
+// modèle la ferait passer pour une confirmation explicite de l'artisan.
+// Piste de correction : soit renforcer le prompt système pour interdire
+// explicitement de recopier un champ non redit, soit comparer la valeur
+// renvoyée à celle déjà connue dans currentPendingDevis pour distinguer un
+// echo d'une vraie nouvelle information avant d'assigner la source. Non
+// bloquant pour la V1 (le plus fréquent est une valeur déjà correcte
+// recopiée), mais à traiter avant de faire confiance à `source` pour une
+// décision produit sensible (ex. audit, contestation d'un devis).
 function mergeSourcedField<T>(current: SourcedField<T>, newValue: T | null): SourcedField<T> {
   if (newValue === null || newValue === undefined) return current;
   return artisanField(newValue);
