@@ -1,0 +1,339 @@
+# Catalogue du schéma public de la base Supabase (structure seulement, AUCUNE donnée),
+# lu le 2026-10-22 en lecture seule (pg_attribute, pg_constraint, pg_index).
+# A|table|ordre|colonne|type|non_nul|défaut   K|ordre|table|contrainte|définition
+# X|définition d'index hors contrainte         R|table avec RLS activée
+# Autres objets du schéma public : 0 vue, 1 fonction, 0 trigger, 0 séquence, 0 politique RLS, 0 enum.
+A|AiUsageEvent|001|id|text|true|
+A|AiUsageEvent|002|userId|text|true|
+A|AiUsageEvent|003|kind|text|true|
+A|AiUsageEvent|004|success|boolean|true|
+A|AiUsageEvent|005|inputTokens|integer|false|
+A|AiUsageEvent|006|outputTokens|integer|false|
+A|AiUsageEvent|007|audioSeconds|integer|false|
+A|AiUsageEvent|008|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|AiUsageEvent|009|messageId|text|false|
+A|AvoirLine|001|id|text|true|
+A|AvoirLine|002|avoirId|text|true|
+A|AvoirLine|003|description|text|true|
+A|AvoirLine|004|quantity|double precision|true|
+A|AvoirLine|005|unitPriceHT|double precision|true|
+A|AvoirLine|006|tvaRate|double precision|true|20
+A|AvoirLine|007|totalHT|double precision|true|
+A|Avoir|001|id|text|true|
+A|Avoir|002|userId|text|true|
+A|Avoir|003|factureId|text|true|
+A|Avoir|004|clientId|text|true|
+A|Avoir|005|number|text|true|
+A|Avoir|006|type|text|true|'total'::text
+A|Avoir|007|reason|text|true|
+A|Avoir|008|totalHT|double precision|true|
+A|Avoir|009|totalTVA|double precision|true|
+A|Avoir|010|totalTTC|double precision|true|
+A|Avoir|011|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|Client|001|id|text|true|
+A|Client|002|userId|text|true|
+A|Client|003|name|text|true|
+A|Client|004|email|text|false|
+A|Client|005|phone|text|false|
+A|Client|006|address|text|false|
+A|Client|007|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|Client|008|preferredContact|text|true|'email'::text
+A|Client|009|whatsappOptOut|boolean|true|false
+A|DevisLine|001|id|text|true|
+A|DevisLine|002|devisId|text|true|
+A|DevisLine|003|description|text|true|
+A|DevisLine|004|quantity|double precision|true|
+A|DevisLine|005|unitPriceHT|double precision|true|
+A|DevisLine|006|tvaRate|double precision|true|20
+A|DevisLine|007|totalHT|double precision|true|
+A|Devis|001|id|text|true|
+A|Devis|002|userId|text|true|
+A|Devis|003|clientId|text|true|
+A|Devis|004|number|text|true|
+A|Devis|005|status|text|true|'brouillon'::text
+A|Devis|006|totalHT|double precision|true|0
+A|Devis|007|totalTVA|double precision|true|0
+A|Devis|008|totalTTC|double precision|true|0
+A|Devis|009|validityDays|integer|true|30
+A|Devis|010|notes|text|false|
+A|Devis|011|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|Devis|012|sentAt|timestamp(3) without time zone|false|
+A|Devis|013|signedAt|timestamp(3) without time zone|false|
+A|Devis|014|linkExpiresAt|timestamp(3) without time zone|false|
+A|Devis|015|linkRevoked|boolean|true|false
+A|Devis|016|signatureHash|text|false|
+A|Devis|017|signatureIp|text|false|
+A|Devis|018|signatureName|text|false|
+A|Devis|019|signatureUserAgent|text|false|
+A|Event|001|id|text|true|
+A|Event|002|userId|text|true|
+A|Event|003|clientId|text|false|
+A|Event|004|title|text|true|
+A|Event|005|description|text|false|
+A|Event|006|address|text|false|
+A|Event|007|startAt|timestamp(3) without time zone|true|
+A|Event|008|endAt|timestamp(3) without time zone|false|
+A|Event|009|reminderMinutesBefore|integer|false|
+A|Event|010|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|FactureLine|001|id|text|true|
+A|FactureLine|002|factureId|text|true|
+A|FactureLine|003|description|text|true|
+A|FactureLine|004|quantity|double precision|true|
+A|FactureLine|005|unitPriceHT|double precision|true|
+A|FactureLine|006|tvaRate|double precision|true|20
+A|FactureLine|007|totalHT|double precision|true|
+A|Facture|001|id|text|true|
+A|Facture|002|userId|text|true|
+A|Facture|003|clientId|text|true|
+A|Facture|004|devisId|text|false|
+A|Facture|005|number|text|true|
+A|Facture|006|totalHT|double precision|true|
+A|Facture|007|totalTVA|double precision|true|
+A|Facture|008|totalTTC|double precision|true|
+A|Facture|009|status|text|true|'emise'::text
+A|Facture|010|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|Facture|011|paidAt|timestamp(3) without time zone|false|
+A|Facture|012|notes|text|false|
+A|Facture|013|dueDate|timestamp(3) without time zone|false|
+A|Facture|014|sentAt|timestamp(3) without time zone|false|
+A|Notification|001|id|text|true|
+A|Notification|002|userId|text|true|
+A|Notification|003|type|text|true|
+A|Notification|004|message|text|true|
+A|Notification|005|link|text|false|
+A|Notification|006|read|boolean|true|false
+A|Notification|007|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|Notification|008|dedupeKey|text|false|
+A|Opportunity|001|id|text|true|
+A|Opportunity|002|userId|text|true|
+A|Opportunity|003|clientId|text|false|
+A|Opportunity|004|title|text|true|
+A|Opportunity|005|amount|double precision|false|
+A|Opportunity|006|probability|integer|true|50
+A|Opportunity|007|stage|text|true|'nouveau'::text
+A|Opportunity|008|expectedCloseAt|timestamp(3) without time zone|false|
+A|Opportunity|009|notes|text|false|
+A|Opportunity|010|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|Opportunity|011|updatedAt|timestamp(3) without time zone|true|
+A|OvhBalanceAlert|001|id|text|true|
+A|OvhBalanceAlert|002|creditsLeft|integer|true|
+A|OvhBalanceAlert|003|threshold|integer|true|
+A|OvhBalanceAlert|004|alertSentAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|OvhBalanceAlert|005|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|RelanceDevisSettings|001|id|text|true|
+A|RelanceDevisSettings|002|userId|text|true|
+A|RelanceDevisSettings|003|enabled|boolean|true|false
+A|RelanceDevisSettings|004|delaiJ1|integer|true|3
+A|RelanceDevisSettings|005|delaiJ2|integer|true|7
+A|RelanceDevisSettings|006|delaiJ3|integer|true|14
+A|RelanceDevisSettings|007|canalEmail|boolean|true|true
+A|RelanceDevisSettings|008|canalSms|boolean|true|false
+A|RelanceDevisSettings|009|messageJ1|text|false|
+A|RelanceDevisSettings|010|messageJ2|text|false|
+A|RelanceDevisSettings|011|messageJ3|text|false|
+A|RelanceDevisSettings|012|updatedAt|timestamp(3) without time zone|true|
+A|RelanceDevis|001|id|text|true|
+A|RelanceDevis|002|devisId|text|true|
+A|RelanceDevis|003|niveau|integer|true|
+A|RelanceDevis|004|canal|text|true|
+A|RelanceDevis|005|statut|text|true|
+A|RelanceDevis|006|erreur|text|false|
+A|RelanceDevis|007|attempts|integer|true|1
+A|RelanceDevis|008|envoyeeAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|RelanceSettings|001|id|text|true|
+A|RelanceSettings|002|userId|text|true|
+A|RelanceSettings|003|enabled|boolean|true|false
+A|RelanceSettings|004|delaiJ1|integer|true|3
+A|RelanceSettings|005|delaiJ2|integer|true|10
+A|RelanceSettings|006|delaiJ3|integer|true|21
+A|RelanceSettings|007|canalEmail|boolean|true|true
+A|RelanceSettings|008|canalSms|boolean|true|false
+A|RelanceSettings|009|messageJ1|text|false|
+A|RelanceSettings|010|messageJ2|text|false|
+A|RelanceSettings|011|messageJ3|text|false|
+A|RelanceSettings|012|updatedAt|timestamp(3) without time zone|true|
+A|Relance|001|id|text|true|
+A|Relance|002|factureId|text|true|
+A|Relance|003|niveau|integer|true|
+A|Relance|004|canal|text|true|
+A|Relance|005|statut|text|true|
+A|Relance|006|erreur|text|false|
+A|Relance|007|envoyeeAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|Relance|008|attempts|integer|true|1
+A|Settings|001|id|text|true|
+A|Settings|002|userId|text|true|
+A|Settings|003|companyName|text|true|''::text
+A|Settings|004|formeJuridique|text|false|
+A|Settings|005|siret|text|false|
+A|Settings|006|tvaIntracom|text|false|
+A|Settings|007|adresseRue|text|false|
+A|Settings|008|codePostal|text|false|
+A|Settings|009|ville|text|false|
+A|Settings|010|telephone|text|false|
+A|Settings|011|emailPro|text|false|
+A|Settings|012|siteWeb|text|false|
+A|Settings|013|logoUrl|text|false|
+A|Settings|014|couleurPrincipale|text|true|'#2563EB'::text
+A|Settings|015|piedDePage|text|false|
+A|Settings|016|prefixeDevis|text|true|'DEV-'::text
+A|Settings|017|prefixeFacture|text|true|'FAC-'::text
+A|Settings|018|prochainNumeroDevis|integer|true|1
+A|Settings|019|prochainNumeroFacture|integer|true|1
+A|Settings|020|conditionsPaiement|text|false|
+A|Settings|021|penalitesRetard|text|false|
+A|Settings|022|reservePropriete|boolean|true|false
+A|Settings|023|createdAt|timestamp(3) without time zone|true|now()
+A|Settings|024|updatedAt|timestamp(3) without time zone|true|
+A|User|001|id|text|true|
+A|User|002|clerkId|text|true|
+A|User|003|email|text|true|
+A|User|004|companyName|text|true|
+A|User|005|siret|text|false|
+A|User|006|address|text|false|
+A|User|007|phone|text|false|
+A|User|008|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|User|011|logoUrl|text|false|
+A|User|012|stripeCustomerId|text|false|
+A|User|013|subscriptionStatus|text|true|'trialing'::text
+A|User|014|trialEndsAt|timestamp(3) without time zone|true|(now() + '14 days'::interval)
+A|User|015|plan|text|true|'starter'::text
+A|User|016|stripeSubscriptionId|text|false|
+A|User|017|stripeCancelAtPeriodEnd|boolean|true|false
+A|User|018|stripeCurrentPeriodEnd|timestamp(3) without time zone|false|
+A|WhatsappConversation|001|id|text|true|
+A|WhatsappConversation|002|userId|text|false|
+A|WhatsappConversation|003|phoneNumber|text|true|
+A|WhatsappConversation|004|state|text|true|'idle'::text
+A|WhatsappConversation|005|pendingDevis|jsonb|false|
+A|WhatsappConversation|006|optedOut|boolean|true|false
+A|WhatsappConversation|007|lastMessageAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|WhatsappConversation|008|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|WhatsappConversation|009|lastCreatedDevisId|text|false|
+A|WhatsappConversation|010|updatedAt|timestamp(3) without time zone|true|
+A|WhatsappJob|001|id|text|true|
+A|WhatsappJob|002|messageId|text|true|
+A|WhatsappJob|003|status|text|true|'pending'::text
+A|WhatsappJob|004|attempts|integer|true|0
+A|WhatsappJob|005|lastError|text|false|
+A|WhatsappJob|006|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|WhatsappJob|007|updatedAt|timestamp(3) without time zone|true|
+A|WhatsappMessage|001|id|text|true|
+A|WhatsappMessage|002|conversationId|text|true|
+A|WhatsappMessage|003|direction|text|true|
+A|WhatsappMessage|004|type|text|true|
+A|WhatsappMessage|005|externalId|text|false|
+A|WhatsappMessage|006|content|text|true|
+A|WhatsappMessage|007|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|WhatsappMessage|008|durationSeconds|integer|false|
+A|WhatsappMessage|009|mediaId|text|false|
+A|WhatsappMessage|010|mimeType|text|false|
+A|WhatsappMessage|011|transcription|text|false|
+A|WhatsappMessage|012|transcriptionModel|text|false|
+A|WhatsappMessage|013|transcriptionMs|integer|false|
+A|WhatsappMessage|014|transcriptionStatus|text|false|
+A|WhatsappMessage|015|extractionStatus|text|false|
+A|WhatsappMessage|016|extractionResult|jsonb|false|
+A|WhatsappMessage|017|extractionModel|text|false|
+A|WhatsappMessage|018|updatedAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|WhatsappSend|001|id|text|true|
+A|WhatsappSend|002|devisId|text|true|
+A|WhatsappSend|003|conversationId|text|true|
+A|WhatsappSend|004|status|text|true|'pending'::text
+A|WhatsappSend|005|attempts|integer|true|0
+A|WhatsappSend|006|externalMessageId|text|false|
+A|WhatsappSend|007|lastError|text|false|
+A|WhatsappSend|008|createdAt|timestamp(3) without time zone|true|CURRENT_TIMESTAMP
+A|WhatsappSend|009|updatedAt|timestamp(3) without time zone|true|
+K|1|"AiUsageEvent"|AiUsageEvent_pkey|PRIMARY KEY (id)
+K|1|"Avoir"|Avoir_pkey|PRIMARY KEY (id)
+K|1|"AvoirLine"|AvoirLine_pkey|PRIMARY KEY (id)
+K|1|"Client"|Client_pkey|PRIMARY KEY (id)
+K|1|"Devis"|Devis_pkey|PRIMARY KEY (id)
+K|1|"DevisLine"|DevisLine_pkey|PRIMARY KEY (id)
+K|1|"Event"|Event_pkey|PRIMARY KEY (id)
+K|1|"Facture"|Facture_pkey|PRIMARY KEY (id)
+K|1|"FactureLine"|FactureLine_pkey|PRIMARY KEY (id)
+K|1|"Notification"|Notification_pkey|PRIMARY KEY (id)
+K|1|"Opportunity"|Opportunity_pkey|PRIMARY KEY (id)
+K|1|"OvhBalanceAlert"|OvhBalanceAlert_pkey|PRIMARY KEY (id)
+K|1|"Relance"|Relance_pkey|PRIMARY KEY (id)
+K|1|"RelanceDevis"|RelanceDevis_pkey|PRIMARY KEY (id)
+K|1|"RelanceDevisSettings"|RelanceDevisSettings_pkey|PRIMARY KEY (id)
+K|1|"RelanceSettings"|RelanceSettings_pkey|PRIMARY KEY (id)
+K|1|"Settings"|Settings_pkey|PRIMARY KEY (id)
+K|1|"User"|User_pkey|PRIMARY KEY (id)
+K|1|"WhatsappConversation"|WhatsappConversation_pkey|PRIMARY KEY (id)
+K|1|"WhatsappJob"|WhatsappJob_pkey|PRIMARY KEY (id)
+K|1|"WhatsappMessage"|WhatsappMessage_pkey|PRIMARY KEY (id)
+K|1|"WhatsappSend"|WhatsappSend_pkey|PRIMARY KEY (id)
+K|2|"Settings"|Settings_userId_key|UNIQUE ("userId")
+K|4|"AiUsageEvent"|AiUsageEvent_messageId_fkey|FOREIGN KEY ("messageId") REFERENCES "WhatsappMessage"(id) ON UPDATE CASCADE ON DELETE SET NULL
+K|4|"AiUsageEvent"|AiUsageEvent_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Avoir"|Avoir_clientId_fkey|FOREIGN KEY ("clientId") REFERENCES "Client"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Avoir"|Avoir_factureId_fkey|FOREIGN KEY ("factureId") REFERENCES "Facture"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Avoir"|Avoir_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"AvoirLine"|AvoirLine_avoirId_fkey|FOREIGN KEY ("avoirId") REFERENCES "Avoir"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Client"|Client_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Devis"|Devis_clientId_fkey|FOREIGN KEY ("clientId") REFERENCES "Client"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Devis"|Devis_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"DevisLine"|DevisLine_devisId_fkey|FOREIGN KEY ("devisId") REFERENCES "Devis"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Event"|Event_clientId_fkey|FOREIGN KEY ("clientId") REFERENCES "Client"(id) ON UPDATE CASCADE ON DELETE SET NULL
+K|4|"Event"|Event_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Facture"|Facture_clientId_fkey|FOREIGN KEY ("clientId") REFERENCES "Client"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Facture"|Facture_devisId_fkey|FOREIGN KEY ("devisId") REFERENCES "Devis"(id) ON UPDATE CASCADE ON DELETE SET NULL
+K|4|"Facture"|Facture_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"FactureLine"|FactureLine_factureId_fkey|FOREIGN KEY ("factureId") REFERENCES "Facture"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Notification"|Notification_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Opportunity"|Opportunity_clientId_fkey|FOREIGN KEY ("clientId") REFERENCES "Client"(id) ON UPDATE CASCADE ON DELETE SET NULL
+K|4|"Opportunity"|Opportunity_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Relance"|Relance_factureId_fkey|FOREIGN KEY ("factureId") REFERENCES "Facture"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"RelanceDevis"|RelanceDevis_devisId_fkey|FOREIGN KEY ("devisId") REFERENCES "Devis"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"RelanceDevisSettings"|RelanceDevisSettings_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"RelanceSettings"|RelanceSettings_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"Settings"|Settings_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"WhatsappConversation"|WhatsappConversation_userId_fkey|FOREIGN KEY ("userId") REFERENCES "User"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"WhatsappJob"|WhatsappJob_messageId_fkey|FOREIGN KEY ("messageId") REFERENCES "WhatsappMessage"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"WhatsappMessage"|WhatsappMessage_conversationId_fkey|FOREIGN KEY ("conversationId") REFERENCES "WhatsappConversation"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"WhatsappSend"|WhatsappSend_conversationId_fkey|FOREIGN KEY ("conversationId") REFERENCES "WhatsappConversation"(id) ON UPDATE CASCADE ON DELETE CASCADE
+K|4|"WhatsappSend"|WhatsappSend_devisId_fkey|FOREIGN KEY ("devisId") REFERENCES "Devis"(id) ON UPDATE CASCADE ON DELETE CASCADE
+R|AiUsageEvent
+R|Avoir
+R|AvoirLine
+R|Client
+R|Devis
+R|DevisLine
+R|Event
+R|Facture
+R|FactureLine
+R|Notification
+R|Opportunity
+R|OvhBalanceAlert
+R|Relance
+R|RelanceDevis
+R|RelanceDevisSettings
+R|RelanceSettings
+R|Settings
+R|User
+R|WhatsappConversation
+R|WhatsappJob
+R|WhatsappMessage
+R|WhatsappSend
+X|CREATE INDEX "AiUsageEvent_messageId_idx" ON public."AiUsageEvent" USING btree ("messageId")
+X|CREATE INDEX "AiUsageEvent_userId_createdAt_idx" ON public."AiUsageEvent" USING btree ("userId", "createdAt")
+X|CREATE INDEX "Event_userId_startAt_idx" ON public."Event" USING btree ("userId", "startAt")
+X|CREATE INDEX "Notification_userId_read_idx" ON public."Notification" USING btree ("userId", read)
+X|CREATE INDEX "Opportunity_userId_stage_idx" ON public."Opportunity" USING btree ("userId", stage)
+X|CREATE INDEX "WhatsappConversation_phoneNumber_idx" ON public."WhatsappConversation" USING btree ("phoneNumber")
+X|CREATE INDEX "WhatsappConversation_userId_idx" ON public."WhatsappConversation" USING btree ("userId")
+X|CREATE INDEX "WhatsappJob_status_idx" ON public."WhatsappJob" USING btree (status)
+X|CREATE INDEX "WhatsappSend_status_idx" ON public."WhatsappSend" USING btree (status)
+X|CREATE UNIQUE INDEX "Notification_userId_dedupeKey_key" ON public."Notification" USING btree ("userId", "dedupeKey") WHERE ("dedupeKey" IS NOT NULL)
+X|CREATE UNIQUE INDEX "RelanceDevisSettings_userId_key" ON public."RelanceDevisSettings" USING btree ("userId")
+X|CREATE UNIQUE INDEX "RelanceDevis_devisId_niveau_canal_key" ON public."RelanceDevis" USING btree ("devisId", niveau, canal)
+X|CREATE UNIQUE INDEX "RelanceSettings_userId_key" ON public."RelanceSettings" USING btree ("userId")
+X|CREATE UNIQUE INDEX "Relance_factureId_niveau_canal_key" ON public."Relance" USING btree ("factureId", niveau, canal)
+X|CREATE UNIQUE INDEX "User_clerkId_key" ON public."User" USING btree ("clerkId")
+X|CREATE UNIQUE INDEX "WhatsappJob_messageId_key" ON public."WhatsappJob" USING btree ("messageId")
+X|CREATE UNIQUE INDEX "WhatsappMessage_externalId_key" ON public."WhatsappMessage" USING btree ("externalId")
+X|CREATE UNIQUE INDEX "WhatsappSend_devisId_key" ON public."WhatsappSend" USING btree ("devisId")
+X|CREATE UNIQUE INDEX "WhatsappSend_externalMessageId_key" ON public."WhatsappSend" USING btree ("externalMessageId")

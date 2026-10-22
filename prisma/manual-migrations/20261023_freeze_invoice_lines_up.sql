@@ -13,12 +13,20 @@
 -- ce contenu modifié : contrôler les cas listés par le contrôle préalable
 -- avant d'appliquer.
 --
--- Réversible : les identifiants des lignes créées sont tracés dans une
--- table dédiée, utilisée par le script de retour arrière.
+-- RELANÇABLE : une seconde exécution ne fige que les factures encore sans
+-- ligne propre (ex. créées par l'ancienne version de l'application entre la
+-- première exécution et le déploiement), sans dupliquer de ligne.
+--
+-- Réversible : chaque ligne créée est tracée (avec sa facture et sa date)
+-- dans une table dédiée, utilisée par le script de retour arrière.
 
 BEGIN;
 
-CREATE TABLE "_Backfill20261023FactureLine" ("factureLineId" TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS "_Backfill20261023FactureLine" (
+    "factureLineId" TEXT PRIMARY KEY,
+    "factureId"     TEXT NOT NULL,
+    "backfilledAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 WITH inserted AS (
     INSERT INTO "FactureLine" ("id", "factureId", "description", "quantity", "unitPriceHT", "tvaRate", "totalHT")
@@ -27,9 +35,10 @@ WITH inserted AS (
     JOIN "DevisLine" dl ON dl."devisId" = f."devisId"
     WHERE f."devisId" IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM "FactureLine" fl WHERE fl."factureId" = f."id")
-    RETURNING "id"
+    RETURNING "id", "factureId"
 )
-INSERT INTO "_Backfill20261023FactureLine" ("factureLineId") SELECT "id" FROM inserted;
+INSERT INTO "_Backfill20261023FactureLine" ("factureLineId", "factureId")
+SELECT "id", "factureId" FROM inserted;
 
 ALTER TABLE "_Backfill20261023FactureLine" ENABLE ROW LEVEL SECURITY;
 

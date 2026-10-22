@@ -4,6 +4,54 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 14 : préparation de la bascule vers le nouveau schéma (terminée)
+
+Branche `test/whatsapp-flow`. Aucune migration exécutée sur Supabase, aucune écriture ni suppression en base (requêtes de catalogue et agrégats uniquement), aucun déploiement, aucun push.
+
+### Fait
+- **Dépôt** : branche propre au départ, HEAD `e0d9773`. Contient `main` (= `origin/main`, `7128471`), `chore/claude-setup`, `feat/outbound-simulation` et `feature/whatsapp-agent-v1` (vérifié par `git merge-base --is-ancestor`). Aucun stash.
+- **Scripts de migration renforcés** :
+  - migration 4 **relançable** (`CREATE TABLE IF NOT EXISTS`, traçabilité de la facture et de la date) ;
+  - **garde-fous de retour arrière** : la migration 1 refuse de perdre des compteurs, la 4 refuse si un avoir a été émis après le gel. Forçage explicite par `SET gestly.confirm_… = 'oui'`.
+- **Nouveaux contrôles** :
+  - `20261023_postcheck.sql`, en lecture seule, qui échoue au premier écart ;
+  - `20261023_pg_behaviour_tests.sql`, 10 tests réels annulés par `ROLLBACK` ;
+  - `20261023_export_counters.sql`.
+- **Scripts reproductibles versionnés** dans `scripts/db/`, au lieu du dossier temporaire :
+  - `catalog-snapshot.sql` et `compare-schema.mjs` (modes `before` et `after`) ;
+  - `rehearse-migrations.mjs` ;
+  - `backup.ps1` et `verify-backup.ps1` (UTF-8 avec BOM pour Windows PowerShell 5.1, syntaxe validée par le parseur) ;
+  - `fixtures/` : catalogue et instantané au 2026-10-22, structure seulement, aucune donnée.
+- **Répétition sur un vrai PostgreSQL 17** (PGlite 0.4.1 en mémoire, dépendance transitive de Prisma, sans connexion réseau possible) : `node scripts/db/rehearse-migrations.mjs` → **31 contrôles OK, 0 échec**. Couverture :
+  - copie locale identique au schéma Supabase (290/290 éléments) ;
+  - échec atomique de la migration 2 en présence d'un doublon ;
+  - application des migrations 1 → 4, puis 0 écart avec `schema.prisma` ;
+  - aucune donnée perdue, 9 lignes figées aux totaux exacts ;
+  - postcheck et tests T1–T10 réussis, sans données restantes après `ROLLBACK` ;
+  - relance de la migration 4 sans doublon, et gel d'une facture créée entre-temps ;
+  - les deux garde-fous de retour arrière refusent, puis le forçage fonctionne ;
+  - retour arrière complet : schéma identique à l'original ;
+  - ré-application : 0 écart.
+- **Sauvegarde, constats en lecture seule** :
+  - offre Supabase **gratuite**, donc aucune sauvegarde téléchargeable : méthode `pg_dump` ;
+  - `postgres` est propriétaire des 22 tables et dispose de `BYPASSRLS` ;
+  - extensions hors du schéma `public` ;
+  - 1 fonction dans `public` (`rls_auto_enable`) et un déclencheur d'événement `ensure_rls` qui active la RLS sur toute nouvelle table, compatible avec les migrations ;
+  - `pg_dump --schema=public` recrée le schéma `public` (vérifié avec le `pg_dump` 17 de PGlite) : la restauration commence donc par le supprimer dans la base neuve.
+- **Ancienne version (`origin/main`)** : elle affiche d'abord les lignes propres d'une facture (API, impression, avoirs), elle est donc compatible avec le gel. Risques R1 à R7 analysés dans le plan (§4).
+- **Vérifications** : `tsc` 0, lint propre, **22 fichiers / 332 tests**. Comparaison sur l'instantané réel : CONFORME (`before`).
+
+### Non vérifié (à faire par l'utilisateur)
+- Sauvegarde réelle et preuve de restaurabilité : PostgreSQL 17 n'est pas installé sur le poste (aucun `pg_dump`, `psql`, `docker`, `supabase`). `backup.ps1` et `verify-backup.ps1` sont prêts mais **n'ont pas été exécutés**.
+- Répétition sur une copie des **vraies** données (`verify-backup.ps1 -Rehearse`).
+
+### Prochaines actions (sur autorisation, voir `PLAN_20261023_numerotation.md`, §3 et §6)
+1. A2 à A4 : installer PostgreSQL 17, sauvegarder, prouver la restauration, répéter sur la copie.
+2. B : migrations 1 → 4 sur Supabase, postcheck, comparaison `after`, tests PostgreSQL.
+3. C : fusion, déploiement, relance de la migration 4, validation fonctionnelle.
+
+---
+
 ## 2026-10-22 — Mission 13 : vérification finale avant application des migrations de numérotation (terminée)
 
 Branche `test/whatsapp-flow`. Aucune migration exécutée, aucune écriture dans Supabase (requêtes de catalogue et agrégats uniquement, aucune donnée personnelle lue), aucun push.
