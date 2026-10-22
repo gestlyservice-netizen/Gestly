@@ -4,9 +4,57 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 13 : vérification finale avant application des migrations de numérotation (terminée)
+
+Branche `test/whatsapp-flow`. Aucune migration exécutée, aucune écriture dans Supabase (requêtes de catalogue et agrégats uniquement, aucune donnée personnelle lue), aucun push.
+
+### Fait
+- **Travail de la Mission 12 vérifié puis commité** (`a50827f`, 20 fichiers) : `tsc` 0 erreur, lint propre, **22 fichiers / 332 tests réussis**, scan de secrets du diff indexé : 0 occurrence.
+- **Comparaison automatique base réelle ↔ `schema.prisma`** (hors ligne, sans `prisma migrate diff`, bloqué par la règle `deny`) : instantané du catalogue PostgreSQL (colonnes, types, nullabilité, index, clés étrangères avec règles ON DELETE/ON UPDATE), puis script qui (1) dérive l'état attendu de `schema.prisma` (23 modèles, 300 éléments), (2) applique **en simulation** les 4 migrations `up` dans l'ordre du plan, en parsant leur SQL (un `DROP CONSTRAINT` sur une contrainte absente fait échouer le script), (3) compare. Script et instantané : dans le dossier temporaire de la session (`scratchpad/m13/compare.mjs`, `db_snapshot.txt`), non versionnés.
+  - Base actuelle : **21 écarts, exactement ceux des migrations** (table `DocumentNumberCounter` et son index et sa clé étrangère, 3 index uniques, 5 clés étrangères CASCADE → RESTRICT). Les 279 autres éléments sont conformes : aucune dérive du schéma par ailleurs.
+  - Base après les 4 migrations simulées : **0 écart → CONFORME**.
+  - Hors comparaison, volontairement : l'index partiel `Notification_userId_dedupeKey_key` (existant, non exprimable en Prisma), la RLS, la table de traçabilité `_Backfill20261023FactureLine`, les valeurs par défaut des colonnes (non comparées).
+- **Contrôle préalable exécuté** (lecture seule), résultats :
+
+| Contrôle | Résultat | Attendu |
+|---|---|---|
+| Documents | 8 devis (13 lignes), 5 factures (0 ligne propre), 0 avoir, 0 relance | — |
+| Doublons `(userId, number)` Devis / Facture / Avoir | 0 / 0 / 0 ; aucun numéro nul | 0 |
+| 5 clés étrangères visées | toutes présentes, noms conformes, `confdeltype = c`, `confupdtype = c` | idem |
+| Objets à créer (table compteurs, table de traçabilité, 3 index) | tous absents | absents |
+| Factures à figer | 5 (toutes issues d'un devis), **9 lignes** copiées ; aucune facture sans devis ni sans ligne de devis | — |
+| Totaux HT, TVA et TTC facture = devis lié | 5/5 identiques, et HT = somme des lignes du devis | identiques |
+| Devis facturé plusieurs fois | 0 | 0 |
+| Comptes possédant des factures ou avoirs | 1 (ne sera plus supprimable après RESTRICT) | — |
+| PostgreSQL / `gen_random_uuid` | 17.6 / disponible | — |
+
+- **Anomalie de données non bloquante** : 1 devis lié à une facture a le statut `signe` (au lieu de `facture`). Le nouveau code le traite bien comme facturé (`isDevisInvoiced` se fonde sur l'existence de la facture) : refacturation et modification refusées. Sa facture sera figée avec les lignes actuelles, identiques en montant. Correction facultative du statut, avec accord, après les migrations.
+
+### Analyse des migrations (ordre : 1 → 4)
+
+| # | Fichier | Objectif | Tables modifiées | Risques | Retour arrière sans perte ? |
+|---|---|---|---|---|---|
+| 1 | `20261023_document_number_counters` | Compteurs persistants (D1, D4) | Création de `DocumentNumberCounter` (+ index unique, FK CASCADE vers `User`, RLS) | Nul : purement additif, ignoré par le code déployé | **Non, si des numéros ont été attribués entre-temps** : `DROP TABLE` perd les compteurs, donc la mémoire des numéros de brouillons supprimés et les « Prochain n° » choisis en série annuelle. Sans perte juste après application. Exporter la table avant un retour arrière |
+| 2 | `20261022_unique_document_numbers` | Unicité des numéros en base | Index uniques sur `Devis`, `Facture`, `Avoir` | Échoue sans effet si un doublon apparaît d'ici là. Le code déployé (`main`, `count + 1`) renverra une erreur 500 au lieu de créer un doublon | **Oui** : suppression des index, aucune donnée touchée |
+| 3 | `20261022_restrict_accounting_document_deletion` | Empêcher toute suppression en cascade de factures et d'avoirs (D5, D6) | Clés étrangères de `Facture` (client, compte) et `Avoir` (client, compte, facture) | Échoue sans effet si un nom de contrainte diffère (vérifié : conformes). Ensuite, une suppression de client ou de compte possédant des factures échoue : comportement voulu. Le code déployé renverra 500 au lieu de 409 sur ce cas | **Oui** sans perte de données ; mais rétablit le risque de suppression en cascade |
+| 4 | `20261023_freeze_invoice_lines` | Figer le contenu des factures existantes (D6) | Insertion dans `FactureLine` (9 lignes), création de `_Backfill20261023FactureLine` | Fige le contenu actuel des devis (vérifié identique en montants). Une facture créée par le code déployé **après** cette migration et **avant** le déploiement de la branche n'aurait pas de lignes propres (le script ne peut pas être relancé tel quel : la table de traçabilité existerait déjà) | **Oui** tant que les lignes tracées n'ont pas été modifiées (aucun code ne modifie une `FactureLine`). Perte de la traçabilité seulement. Les factures réafficheraient les lignes du devis, désormais non modifiables par le code de la branche |
+
+Aucune migration `up` ne supprime de ligne : seule la 4 (insertion) touche aux données. Les `DROP CONSTRAINT` de la 3 sont recréées dans la même transaction. Chaque fichier est encadré par `BEGIN`/`COMMIT` : un échec n'applique rien.
+Les migrations ne peuvent pas supprimer de documents. Seuls les scripts de retour arrière 1 (`DROP TABLE` des compteurs) et 4 (suppression des lignes tracées et `DROP TABLE` de la traçabilité) suppriment des données. Le retour arrière 3 ne supprime rien mais rétablit les cascades.
+
+### Conclusion
+Les 4 migrations peuvent être appliquées en sécurité, dans l'ordre du plan (`prisma/manual-migrations/PLAN_20261023_numerotation.md`). **Aucun point bloquant.** Préalables restants, côté utilisateur : sauvegarde de la base, autorisation écrite, puis **fusion et déploiement rapides de la branche** après la migration 4, pour limiter la fenêtre où le code déployé renvoie 500 au lieu de 409 et crée des factures sans lignes propres.
+
+### Prochaines actions (non commencées, sur autorisation)
+1. Sauvegarde, puis application des migrations 1 → 4 et contrôles après chaque étape (plan, §3).
+2. Relancer le script de comparaison : 0 écart attendu sur la base réelle.
+3. Validation fonctionnelle (plan, §4), fusion de `test/whatsapp-flow`, déploiement.
+
+---
+
 ## 2026-10-22 — Mission 12 : décisions D1 à D6 (terminée)
 
-Branche `test/whatsapp-flow`. Mission 11 commitée (`bf9c20c`). Modifications de cette mission **non commitées**. Aucune migration exécutée, aucune donnée modifiée.
+Branche `test/whatsapp-flow`. Mission 11 commitée (`bf9c20c`). Modifications de cette mission commitées en Mission 13 (`a50827f`). Aucune migration exécutée, aucune donnée modifiée.
 
 ### Fait
 - **D1/D2/D3/D4** (`lib/numbering/document-number.ts`) : compteurs persistants par (artisan, type, série) dans une nouvelle table `DocumentNumberCounter`, dont la série annuelle fait partie de la clé (remise à 001 chaque année). « Prochain n° » est affiché par `GET /api/settings` comme le numéro réellement attribué. `POST /api/settings` l'applique, ou le **refuse en 409 avec explication** (valeur inférieure, ou série annuelle avant migration), jamais ignoré. Un numéro n'est jamais réattribué, même après suppression d'un brouillon. Avant la migration, la table absente est détectée (`to_regclass`) et le comportement de la Mission 11 s'applique.
