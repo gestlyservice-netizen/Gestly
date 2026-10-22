@@ -169,13 +169,20 @@ async function handleIncomingMessage(message: MetaMessageT, gestlyNumber: string
       },
     });
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      // Dédoublonnage : ce message (wamid) a déjà été reçu et traité —
-      // retry Meta ou webhook appelé deux fois. On ne recrée rien.
+    if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
+    // Dédoublonnage : ce message (wamid) a déjà été reçu — retry Meta ou
+    // webhook appelé deux fois. On ne recrée jamais le message. Seule
+    // exception : le premier passage a enregistré le message mais a échoué
+    // AVANT de créer son job (erreur base → réponse 500 → Meta relivre).
+    // Sans job, le message ne serait jamais traité : on crée le job manquant.
+    const existing = await prisma.whatsappMessage.findUnique({ where: { externalId: message.id } });
+    const existingJob = existing ? await prisma.whatsappJob.findUnique({ where: { messageId: existing.id } }) : null;
+    if (!existing || existingJob) {
       console.info(`[whatsapp/webhook] message ${message.id} déjà connu (doublon) — ignoré`);
       return;
     }
-    throw err;
+    console.warn(`[whatsapp/webhook] message ${message.id} déjà enregistré mais sans job (échec précédent) — job créé`);
+    whatsappMessage = existing;
   }
 
   const isProcessableType = message.type === "text" || message.type === "audio";
@@ -190,9 +197,17 @@ async function handleIncomingMessage(message: MetaMessageT, gestlyNumber: string
     return;
   }
 
-  const job = await prisma.whatsappJob.create({
-    data: { messageId: whatsappMessage.id, status: "pending" },
-  });
+  let job;
+  try {
+    job = await prisma.whatsappJob.create({
+      data: { messageId: whatsappMessage.id, status: "pending" },
+    });
+  } catch (err) {
+    // Deux livraisons concurrentes du même message : un seul job existe
+    // (WhatsappJob.messageId est unique), l'autre livraison s'arrête ici.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return;
+    throw err;
+  }
 
   // Déclenchement : traitement lancé après la réponse HTTP (waitUntil ne
   // bloque jamais la réponse à Meta), toujours via l'orchestrateur unique

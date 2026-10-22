@@ -91,6 +91,20 @@ export function buildDevisCreatedReply(number: string, clientName: string, total
   ].join(" ");
 }
 
+// Création refusée pour une raison métier (jamais une erreur technique, qui
+// est retentée automatiquement). Le brouillon est conservé.
+export function buildCreationFailedReply(
+  reason: "client_not_found" | "missing_client_name" | "no_lines",
+  clientName: string | null
+): string {
+  const base = "Je n'ai pas pu créer le devis : ";
+  if (reason === "client_not_found") {
+    return `${base}le client « ${clientName ?? "?"} » n'existe plus dans Gestly. Répondez OUI pour créer le devis avec une nouvelle fiche client à ce nom, ou dites-moi ce qu'il faut changer.`;
+  }
+  if (reason === "no_lines") return `${base}aucune prestation n'est renseignée. Quelles prestations et à quel prix ?`;
+  return `${base}le nom du client n'est pas valide. Pour qui est ce devis ?`;
+}
+
 export function buildInsufficientDataForCreationReply(missing: string[]): string {
   return `Il manque encore des informations pour créer ce devis : ${missing.join(", ")}.`;
 }

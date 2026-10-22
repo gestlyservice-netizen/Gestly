@@ -4,6 +4,58 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 9 : validation du parcours WhatsApp → devis → envoi simulé
+
+Branche : `test/whatsapp-flow`, créée depuis `chore/claude-setup` @ `2ecdda4`. Aucune API Meta ou OpenAI, aucun envoi réel, aucune migration, aucune donnée Supabase, `npm run dev` non lancé.
+
+### Méthode
+
+- `tests/support/fake-prisma.ts` : base Prisma **en mémoire** reproduisant ce dont dépend la fiabilité du parcours. Contraintes d'unicité du schéma (`P2002` sur `WhatsappMessage.externalId`, `WhatsappJob.messageId`, `WhatsappSend.devisId`, `Notification(userId, dedupeKey)`…), `$transaction` avec annulation complète, `updateMany` conditionnels et `increment`, `include`/`select`/`orderBy`/`take`, `DbNull` relu comme `null`, injection de pannes (`failNext`).
+- `tests/whatsapp-flow.integration.test.ts` : le parcours réel tourne de bout en bout (webhook signé HMAC → job → `waitUntil` → agent → extraction avec checkpoint → résolution client → `confirmDevisCreation` → `createClient`/`createDevis` → `sendDevisToClient` → upload + document). Seuls sont simulés : la base, les modèles IA (`MockLanguageModelV4`/`MockTranscriptionModelV4`, réponses scriptées), le contenu du PDF, et le média entrant pour le cas « vocal transcrit ». Les envois passent par le **vrai mode simulation**. Invariant vérifié après chaque test : `fetch` jamais appelé.
+- **Approche TDD** : tests écrits sur le code existant → **14 réussis, 5 échecs**, chacun révélant un bug ; corrections ; **19/19**.
+
+### Bugs trouvés et corrigés (chacun couvert par un test de régression)
+
+1. **Message perdu après un échec de base** (`app/api/whatsapp/webhook/route.ts`). Message enregistré, puis échec de création du job → réponse 500 → Meta relivre → doublon ignoré → message jamais traité. Désormais, si le message existe sans job, le job manquant est créé ; un `P2002` sur le job (livraisons concurrentes) est ignoré proprement.
+2. **Devis envoyé au client sans confirmation** (`lib/whatsapp/conversation-turn.ts`, grave). La reprise d'un job « oui » de *création*, après une erreur en aval (ex. enregistrement de la réponse), trouvait la conversation en attente de confirmation d'*envoi* : le « oui » rejoué depuis le checkpoint était interprété comme une confirmation d'envoi, et le PDF partait chez le client. Désormais, un message reçu avant la création du devis ne peut jamais confirmer son envoi : il renvoie la réponse « devis créé ».
+3. **Conversation bloquée après un premier envoi** (`conversation-turn.ts`). Après un devis envoyé, chaque nouveau message recevait « devis déjà envoyé », donc aucun second devis possible sur ce numéro. Désormais, seule la reprise d'un message reçu avant l'envoi (comparé à `WhatsappSend.createdAt`, ou à `sentAt` sinon) reçoit ce rappel ; un nouveau message ouvre un nouveau brouillon.
+4. **Erreur métier de création sans réponse** (`conversation-turn.ts`, `reply-builder.ts`). Client identifié puis supprimé (`CLIENT_NOT_FOUND`) ou nom invalide : l'erreur faisait échouer le job, rejoué 5 fois sans succès, et l'artisan n'avait jamais de réponse. Désormais, réponse claire (`buildCreationFailedReply`), job terminé, correspondance client oubliée pour qu'un nouveau « oui » crée la fiche. Les erreurs techniques restent retentées automatiquement.
+5. **Message attribué au mauvais compte** (`lib/whatsapp/identify.ts`, isolation). Un numéro déclaré par deux comptes Gestly était attribué au premier trouvé. Désormais, le message n'est attribué à aucun compte, avec un avertissement dans le journal.
+
+### Parcours couverts (19 tests d'intégration)
+
+| Thème | Cas |
+|---|---|
+| Nominal | Nouveau client, demande complète → récapitulatif → création (client + devis brouillon, totaux 1200 HT / 1440 TTC) → envoi simulé (upload + document au client, devis `envoye`, `WhatsappSend` succès, conversation `idle`) |
+| Client existant | Réutilisé, aucun doublon |
+| Demande incomplète | Clarification, « oui » prématuré refusé, complétion, puis création |
+| Refus | Refus de création (rien créé) ; refus d'envoi (devis brouillon, aucun document) |
+| Vocal | Vocal transcrit (média + Whisper simulés) traité comme du texte ; vocal en simulation pure → réponse claire + escalade, aucun appel IA |
+| Doublons et reprises | Double livraison Meta (un message, un job, un appel IA, une réponse) ; relivraison après échec du job [régr. 1] ; reprise du « oui » de création [régr. 2] ; reprise du « oui » d'envoi (un seul document) |
+| Après envoi | Second devis complet dans la même conversation, numéros distincts [régr. 3] |
+| Erreurs | Client supprimé entre-temps [régr. 4] ; panne pendant `devis.create` → transaction annulée (aucun client orphelin) puis reprise → exactement un client et un devis, sans nouvel appel IA |
+| Isolation | Homonyme d'un autre compte jamais utilisé ; conversations séparées entre artisans ; numéro inconnu ; numéro partagé par deux comptes [régr. 5] ; signature invalide → 403 |
+
+### Résultats
+
+| Vérification | Résultat |
+|---|---|
+| `npm.cmd exec -- tsc --noEmit` | ✅ code 0 |
+| `npm.cmd run lint` | ✅ aucune erreur ni avertissement |
+| `npm.cmd test -- --run` | ✅ **19 fichiers, 230 tests réussis, 0 échec** (+19) |
+
+### Non vérifié
+
+- **Rien n'est vérifié contre les vraies API** : Meta (webhook réel, templates, upload, document), OpenAI (extraction et Whisper réels), base Supabase réelle (transactions et contraintes réelles du pilote `pg`).
+- Non testés : vérification GET du webhook (`hub.challenge`), route cron `/api/whatsapp/process-pending`, génération réelle du PDF, STOP/START et opt-out client en intégration (couverts seulement par les tests unitaires existants), plafond IA en intégration.
+- En simulation locale, l'IA est désactivée : l'extraction échoue (« IA non configurée ») et le job est retenté puis abandonné, **sans réponse à l'artisan**. Une recette locale du parcours nécessitera une IA simulée côté application, ou une clé de test avec `OUTBOUND_MODE` adapté, sur décision de l'utilisateur.
+- Limites connues, non corrigées (hors mission) :
+  - après un refus de création, un « oui » sans modification répond « il me manque des informations » au lieu de reproposer le récapitulatif ;
+  - la numérotation des devis (`count + 1`, partagée avec l'API web) peut produire un doublon après suppression d'un devis ;
+  - un téléphone fourni après le nom ne relance pas la recherche du client.
+
+---
+
 ## 2026-10-22 — Mission 8 : validation du mode simulation, correction Resend, build isolé
 
 Branche : `feat/outbound-simulation`. Aucun envoi réel, aucun appel IA, aucune migration, aucune donnée modifiée, aucun déploiement, aucun push. Serveur applicatif non lancé.

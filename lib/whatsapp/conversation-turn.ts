@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { resolveExtractionResult } from "@/lib/whatsapp/extraction-checkpoint";
 import { resolveClient } from "@/lib/whatsapp/client-resolution";
 import { confirmDevisCreation } from "@/lib/whatsapp/confirm-creation";
+import { CreateDevisError } from "@/lib/devis/create-devis";
+import { CreateClientError } from "@/lib/clients/create-client";
 import { sendDevisToClient } from "@/lib/whatsapp/send-devis";
 import { normalizePhoneE164 } from "@/lib/phone";
 import { escalateToArtisan } from "@/lib/whatsapp/escalation";
@@ -11,6 +13,7 @@ import {
   buildAmbiguousConfirmationReply,
   buildCreationDeclinedReply,
   buildDevisCreatedReply,
+  buildCreationFailedReply,
   buildInsufficientDataForCreationReply,
   buildSendConfirmationQuestion,
   buildSendAmbiguousReply,
@@ -58,18 +61,31 @@ export async function processTextMessage(
   const currentPendingDevis: PendingDevis =
     (conversationRow.pendingDevis as unknown as PendingDevis) ?? emptyPendingDevis();
 
-  // Idempotence de lecture stricte : si le devis lié à cette conversation
-  // est déjà réellement envoyé, on ne relance jamais rien (extraction,
-  // création, envoi) — on rappelle juste la confirmation déjà connue, quel
-  // que soit le message reçu (rejeu, message en double, artisan qui répond
-  // encore après coup...).
+  // Règle de rejeu : un message ne peut agir que sur l'état qui existait
+  // quand il a été REÇU. La reprise d'un ancien message (retry de job après
+  // une erreur en aval) ne doit jamais valoir confirmation d'une étape
+  // apparue après lui. On compare donc l'horodatage du message entrant à
+  // celui de l'étape concernée (création du devis, début de l'envoi).
+  const incoming = await prisma.whatsappMessage.findUnique({ where: { id: messageId } });
+  const receivedBeforeOrAt = (marker: Date | null | undefined): boolean =>
+    !incoming || !marker || incoming.createdAt.getTime() <= marker.getTime();
+
+  // Idempotence de lecture : si le devis lié à cette conversation est déjà
+  // envoyé et que CE message a été reçu avant l'envoi (rejeu du message de
+  // confirmation d'envoi, doublon), on ne relance rien — on rappelle la
+  // confirmation déjà connue. Un message reçu APRÈS l'envoi est une nouvelle
+  // demande : il suit le parcours normal (nouveau brouillon), sans quoi la
+  // conversation resterait bloquée sur ce devis pour toujours.
   if (conversationRow.lastCreatedDevisId) {
     const devis = await prisma.devis.findUnique({
       where: { id: conversationRow.lastCreatedDevisId },
       include: { client: true },
     });
     if (devis?.status === "envoye") {
-      return buildDevisSentReply(devis.number, devis.client.name);
+      const send = await prisma.whatsappSend.findUnique({ where: { devisId: devis.id } });
+      if (receivedBeforeOrAt(send?.createdAt ?? devis.sentAt)) {
+        return buildDevisSentReply(devis.number, devis.client.name);
+      }
     }
   }
 
@@ -97,6 +113,15 @@ export async function processTextMessage(
   // ── Gestion spécifique de la confirmation d'ENVOI (étape 6) ────────────
   if (SENDING_STATES.has(conversationRow.state) && conversationRow.lastCreatedDevisId) {
     const devisId = conversationRow.lastCreatedDevisId;
+    const devis = await prisma.devis.findUnique({ where: { id: devisId }, include: { client: true } });
+
+    // Rejeu du message qui a confirmé la CRÉATION (reçu avant le devis) :
+    // son « oui » portait sur la création, jamais sur l'envoi. Sans cette
+    // garde, la reprise du job après une erreur en aval enverrait le devis
+    // au client sans que l'artisan l'ait demandé.
+    if (devis && receivedBeforeOrAt(devis.createdAt)) {
+      return buildDevisCreatedReply(devis.number, devis.client.name, devis.totalTTC);
+    }
 
     if (raw.intent === "confirmation" && raw.reponseConfirmation === "oui") {
       const outcome = await sendDevisToClient(conversationId, userId);
@@ -126,7 +151,6 @@ export async function processTextMessage(
     // Toute autre réponse (ambiguë, hors sujet, nouvelle description...) ne
     // déclenche jamais d'envoi : on redemande clairement, avec le
     // destinataire exact pour éviter toute confusion.
-    const devis = await prisma.devis.findUnique({ where: { id: devisId }, include: { client: true } });
     if (!devis) return buildSendFailedReply();
     const phone = devis.client.phone ? normalizePhoneE164(devis.client.phone) : "(numéro inconnu)";
     return raw.intent === "confirmation"
@@ -137,7 +161,20 @@ export async function processTextMessage(
   // ── Gestion spécifique de la confirmation de CRÉATION (étape 5) ────────
   if (conversationRow.state === "awaiting_creation_confirmation" && raw.intent === "confirmation") {
     if (raw.reponseConfirmation === "oui") {
-      const outcome = await confirmDevisCreation(conversationId, userId, currentPendingDevis);
+      let outcome;
+      try {
+        outcome = await confirmDevisCreation(conversationId, userId, currentPendingDevis);
+      } catch (err) {
+        // Erreurs MÉTIER déterministes (client supprimé entre-temps, nom
+        // invalide...) : les rejouer échouerait toujours, et l'artisan
+        // n'aurait jamais de réponse. On répond clairement à la place.
+        // confirmDevisCreation a déjà tout annulé et remis la conversation
+        // en attente de confirmation. Les erreurs techniques (base...)
+        // remontent toujours pour un retry automatique du job.
+        const failure = await handleCreationError(err, conversationId, currentPendingDevis);
+        if (failure !== null) return failure;
+        throw err;
+      }
 
       if (outcome.kind === "created" || outcome.kind === "already_created") {
         return buildDevisCreatedReply(outcome.number, outcome.clientName, outcome.totalTTC);
@@ -206,4 +243,33 @@ export async function processTextMessage(
   }
 
   return buildReplyForIntent(nextPendingDevis, raw);
+}
+
+// Traduit une erreur métier de création en réponse WhatsApp. Renvoie null
+// pour toute autre erreur (technique), qui doit remonter au job.
+async function handleCreationError(
+  err: unknown,
+  conversationId: string,
+  pendingDevis: PendingDevis
+): Promise<string | null> {
+  if (err instanceof CreateClientError) {
+    return buildCreationFailedReply("missing_client_name", pendingDevis.client.nomMentionne);
+  }
+  if (!(err instanceof CreateDevisError)) return null;
+
+  if (err.code === "CLIENT_NOT_FOUND") {
+    // Le client identifié n'existe plus (supprimé depuis l'interface web) :
+    // on oublie cette correspondance pour qu'une nouvelle confirmation crée
+    // un client à partir du nom mentionné, plutôt que d'échouer à nouveau.
+    const reset: PendingDevis = {
+      ...pendingDevis,
+      client: { ...pendingDevis.client, matchedClientId: null, matchStatus: "no_match", ambiguousCandidates: [] },
+    };
+    await prisma.whatsappConversation.update({
+      where: { id: conversationId },
+      data: { pendingDevis: reset as unknown as object },
+    });
+    return buildCreationFailedReply("client_not_found", pendingDevis.client.nomMentionne);
+  }
+  return buildCreationFailedReply(err.code === "NO_LINES" ? "no_lines" : "missing_client_name", pendingDevis.client.nomMentionne);
 }
