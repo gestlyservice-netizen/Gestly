@@ -25,13 +25,48 @@ SaaS de gestion pour artisans et indépendants : clients, devis, factures, avoir
 État vérifié le 2026-10-22, sans lecture des valeurs :
 - `.env.local` référence bien ce projet Supabase.
 - Stripe : **mode test** (préfixe de clé). Clerk : **instance de développement** (préfixes `pk_test_`/`sk_test_`).
-- ⚠️ **Clés réelles présentes** pour Resend, OVH SMS, WhatsApp (Meta) et OpenAI. **Tout parcours qui envoie déclenche un envoi réel** (SMS facturés, messages WhatsApp, emails, appels IA facturés).
+- ⚠️ **Clés réelles présentes** pour Resend, OVH SMS, WhatsApp (Meta) et OpenAI. Elles sont **neutralisées par le mode simulation** (section suivante) dès que la branche `feat/outbound-simulation` est en place.
 - `CRON_SECRET` absent en local : les routes cron ne sont alors accessibles qu'à l'administrateur connecté.
+
+## Mode simulation des envois (`lib/outbound/`)
+
+- **Règle** (`lib/outbound/mode.ts`, `getOutboundMode()`), dans l'ordre :
+  1. `OUTBOUND_MODE=simulate|live` (explicite) ;
+  2. `NODE_ENV=development|test` → `simulate`, même si `VERCEL_ENV=production` a été importé localement par erreur ;
+  3. `VERCEL_ENV=production` → `live` ;
+  4. sinon `simulate` (`next start` local, Preview Vercel…).
+  La présence de vraies clés ne déclenche **jamais** un envoi à elle seule.
+- `OUTBOUND_MODE=simulate` = coupe-circuit, même en production. `OUTBOUND_MODE=live` = envois réels hors production, **réservé à l'utilisateur** (bloqué pour Claude par le hook). Toute autre valeur est ignorée **et signalée**.
+- **Jamais silencieux** (`getOutboundDiagnostics()`) : une production probable en simulation (build de production sur Vercel ou `APP_URL` de production sans `VERCEL_ENV=production`), un coupe-circuit laissé en production ou une valeur `OUTBOUND_MODE` inconnue sont signalés par un log d'erreur et un message Sentry au démarrage (`instrumentation.ts`), par `/api/health` en échec (`checks.outbound = "FAILED: …"`, HTTP 503), et par chaque envoi bloqué, journalisé en erreur.
+- Le mode actif est affiché au démarrage (`[outbound] mode=...`). Chaque envoi simulé est journalisé (`[outbound:simulate] ...`, destinataire masqué) et conservé en mémoire (`getSimulatedOutbox()`, 100 derniers).
+- **Emails : toujours via `sendEmail()`** (`lib/outbound/email.ts`), jamais `client.emails.send()` (garde-fou statique). Le SDK Resend renvoie `{ error }` sans lever d'exception ; `sendEmail()` lève `EmailSendError` en cas d'erreur ou d'absence d'identifiant. Un devis, une facture, une relance ou une alerte OVH n'est marqué envoyé qu'après un retour normal de `sendEmail()`.
+- Garde-fous placés **au plus près du réseau**, donc valables pour tous les appelants (routes API, cron, agent WhatsApp asynchrone) :
+
+| Service | Point protégé | En simulation |
+|---|---|---|
+| WhatsApp (envoi texte et document) | `lib/whatsapp/send.ts` (`postMessage`) | Identifiant `sim_wamid_…`, aucun appel à Meta, aucune variable requise |
+| WhatsApp (upload de média) | `lib/whatsapp/media.ts` (`uploadWhatsappMedia`) | Identifiant `sim_media_…` |
+| WhatsApp (média entrant) | `lib/whatsapp/media.ts` (`getMediaMetadata`, `downloadMediaBuffer`) | Bloqué → chemin existant « média introuvable » (échec + escalade) |
+| WhatsApp (template devis, URL en dur) | `app/api/devis/[id]/whatsapp/route.ts` | Réponse `{ success, messageId, simulated: true }` ; URL Meta inchangée en production |
+| SMS OVH (envoi et solde) | `lib/sms/ovh-provider.ts`, `lib/ovh-balance.ts` ; SDK chargé uniquement par `lib/sms/ovh-client.ts` | `sendSMS` renvoie `true` ; solde simulé à 1000 crédits |
+| Emails Resend (5 usages) | `lib/outbound/email.ts` (`sendEmail`, `canSendEmail`) ; seul fichier qui importe `resend` | Identifiant `sim_email_…`, SDK jamais instancié |
+| IA (extraction, Whisper, amélioration de texte) | `lib/ai/config.ts` : `isAiConfigured()` renvoie `false` ; `getWhatsapp*Model()` lèvent une erreur | Chemins « IA non configurée » existants ; aucun appel facturé |
+
+- **Non couverts (documenté)** : Stripe (mode test prouvé par le préfixe de clé), upload de logo vers Supabase Storage (`app/api/settings/logo`, stockage du projet, aucun tiers), Sentry (DSN local), Clerk (instance de dev).
+- Tests : `lib/outbound/no-real-sends.test.ts` (aucun appel `fetch`, Resend, OVH ou IA avec de fausses clés présentes ; chemin live inchangé), `lib/outbound/static-guards.test.ts` (tout nouveau `fetch`, `new Resend`, `.emails.send(`, `require("ovh")` ou appel IA hors des fichiers protégés fait échouer la suite), `lib/outbound/mode.test.ts` (règles et diagnostics), `lib/outbound/email-delivery.test.ts` (réussite, refus Resend, simulation, pour devis, factures, relances et alerte OVH).
+- **Toute nouvelle intégration externe** doit passer par `isOutboundSimulated()` au point d'appel réseau et être ajoutée aux listes de `static-guards.test.ts`.
+- ⚠️ **Avant le déploiement en production** : définir `OUTBOUND_MODE=live` dans l'environnement Production de Vercel (recommandé, déterministe) ou vérifier que `VERCEL_ENV` y est exposé. Après déploiement, contrôler `/api/health` : `checks.outbound` doit valoir `mode=live`.
+
+## Garde-fous Claude Code (`.claude/`)
+
+- `.claude/settings.json` (versionné) : règles `deny` (lecture et écriture des `.env*`, `git push`, `vercel`, `prisma db push|migrate|db execute`, `supabase db push|reset`, `psql`, `printenv`, outils Supabase d'infrastructure), règle `ask` (`execute_sql` Supabase), et un hook `PreToolUse`.
+- `.claude/hooks/guard.mjs` : analyse chaque commande Bash/PowerShell, chaque accès fichier et chaque appel au connecteur Supabase. Il bloque : secrets (`.env*` sauf `.env.example`, `printenv`, remote Git de l'ancien PC) ; `db push`, `migrate dev|deploy|reset|resolve`, `db execute|pull|seed`, `--accept-data-loss`, `psql` ; `vercel` sous toutes ses formes (`npx`, `pnpm dlx`…) ; `git push` (y compris `git -C . push`, `bash -c "…"`, commandes chaînées) et `gh pr create` ; `OUTBOUND_MODE=live` et `VERCEL_ENV=production` ; le SQL destructif via Supabase ; la modification des garde-fous eux-mêmes. En cas d'erreur interne, il bloque (échec fermé). Tests : `tests/claude-guard.test.ts`.
+- **Limites (ne pas surestimer)** : analyse textuelle uniquement. Le hook ne voit pas le contenu d'un script écrit puis exécuté (ex. un `.mjs` qui lance `prisma db push`), ni une commande obfusquée (base64, variables concaténées), ni les actions de l'utilisateur hors de Claude Code. Il peut aussi produire des faux positifs : une commande qui mentionne `.claude/settings` avec `sed`, ou un `grep` sur `^\.env`. **Il ne remplace pas les protections applicatives** (`lib/outbound/mode.ts`), l'absence de secrets de production sur le poste, ni les droits restreints côté Supabase et Vercel. Les garde-fous ne peuvent être modifiés que par l'utilisateur.
 
 Règles qui en découlent :
 - Données de la base : créer et modifier des données **fictives** est autorisé pour développer et tester. Toute **suppression** de données reste soumise à accord explicite.
 - **Changements de schéma** : jamais `prisma db push`. Il supprimerait l'index unique partiel `Notification(userId, dedupeKey) WHERE dedupeKey IS NOT NULL`, qui n'est pas exprimable dans `schema.prisma` et garantit `createNotificationOnce`. Procédure : fichier SQL up/down dans `prisma/manual-migrations/`, appliqué après accord explicite, puis mise à jour de `schema.prisma` et `prisma generate`.
-- **Envois réels** : tant que le mode simulation n'est pas en place dans le code, ne jamais déclencher en local un parcours qui envoie un SMS, un WhatsApp, un email ou un appel IA. Ne jamais utiliser de vrais numéros de téléphone ou adresses email dans les données de test.
+- **Envois réels** : en local, le mode simulation (ci-dessous) intercepte WhatsApp, SMS, emails et IA. Ne jamais le désactiver (`OUTBOUND_MODE=live`) sans accord explicite. Ne jamais utiliser de vrais numéros de téléphone ou adresses email dans les données de test.
 
 ### Règles
 
@@ -47,10 +82,10 @@ Règles qui en découlent :
 | PostgreSQL | Base distincte (projet de dev). SSL obligatoire : `lib/prisma.ts` force `ssl: { rejectUnauthorized: false }` | Écriture, suppression ou migration sur les données clients réelles |
 | Clerk | Instance de développement (`pk_test_`/`sk_test_`) | Comptes réels ; les `clerkId` diffèrent entre instances |
 | Stripe | Mode test (`sk_test_`, prix de test, `stripe listen` pour le webhook) | Paiements et abonnements réels |
-| Resend | Clé vide (pas d'envoi) ; sinon compte de test et destinataires `*@resend.dev` | Emails réels aux clients. Avec une clé vide, `new Resend("")` lève une exception : les routes d'envoi renvoient une erreur, seules les relances l'ignorent |
-| OVH SMS | Variables vides : `sendSMS()` renvoie `false` | Pas de mode test : SMS réels et facturés |
-| Meta WhatsApp | Variables vides, ou `WHATSAPP_GRAPH_API_BASE_URL` vers un faux serveur local | Messages réels. ⚠️ `app/api/devis/[id]/whatsapp/route.ts` a l'URL Meta en dur et ignore cette variable |
-| IA (Gateway/OpenAI) | Clés vides : `isAiConfigured()` est faux ; tests via `MockLanguageModelV4` / `MockTranscriptionModelV4` | Appels facturés |
+| Resend | Mode simulation (client simulé, clé non requise) | Emails réels aux clients si `OUTBOUND_MODE=live` |
+| OVH SMS | Mode simulation (aucun client OVH créé) | Pas de mode test chez OVH : SMS réels et facturés si `live` |
+| Meta WhatsApp | Mode simulation, y compris la route devis à URL en dur | Messages réels si `live` |
+| IA (Gateway/OpenAI) | Mode simulation : `isAiConfigured()` est faux ; tests via `MockLanguageModelV4` / `MockTranscriptionModelV4` | Appels facturés si `live` |
 | Supabase Storage (logos) | Vide, ou projet de dev | Fichiers déposés dans le stockage de production |
 | Sentry | DSN et token vides ; `SENTRY_URL=http://127.0.0.1:9` pour un build hors ligne | Erreurs de dev mêlées à la production ; télémétrie du plugin |
 | Liens publics | ⚠️ `lib/url.ts` rejette `localhost` et retombe sur `https://www.gestly.fr` | Liens de dev pointant vers la production |
@@ -167,7 +202,7 @@ npm.cmd run lint               # ESLint (next/core-web-vitals + next/typescript)
 npm.cmd test -- --run          # Vitest, une passe
 ```
 
-Dernier résultat de référence (2026-10-22, après le merge `dbd67c6`) : tsc OK, lint sans erreur ni avertissement, **85/85 tests réussis** (13 fichiers).
+Dernier résultat de référence (2026-10-22, branche `feat/outbound-simulation`) : voir `PROGRESS.md`, Mission 7.
 
 Règles pour les tests :
 - Les tests doivent rester **entièrement simulés** : `vi.mock("@/lib/prisma")`, modules d'envoi (`@/lib/whatsapp/send`, `media`, SDK Stripe/Resend/OVH) mockés, modèles IA injectés via `MockLanguageModelV4` / `MockTranscriptionModelV4` (`ai/test`) grâce au paramètre `opts.model`. Aucun test ne doit lire `.env*` ni ouvrir une connexion réelle.

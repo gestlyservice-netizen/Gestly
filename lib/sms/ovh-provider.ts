@@ -1,5 +1,7 @@
 import type { SmsProvider } from "./types";
 import { normalizePhoneE164 } from "@/lib/phone";
+import { isOutboundSimulated, recordSimulatedOutbound } from "@/lib/outbound/mode";
+import { createOvhClient } from "./ovh-client";
 
 // OVH alphanumeric sender: 3–11 chars, alphanumeric only, no accents
 function sanitizeSender(name: string): string {
@@ -25,6 +27,13 @@ function isSenderRejected(err: unknown): boolean {
 
 export class OvhProvider implements SmsProvider {
   async sendSMS(to: string, message: string, sender?: string): Promise<boolean> {
+    // Mode simulation (tout environnement hors production Vercel) : aucun
+    // client OVH n'est créé, même si les clés sont présentes.
+    if (isOutboundSimulated()) {
+      recordSimulatedOutbound("sms", to, `length=${message.length}`);
+      return true;
+    }
+
     const appKey      = process.env.OVH_APP_KEY;
     const appSecret   = process.env.OVH_APP_SECRET;
     const consumerKey = process.env.OVH_CONSUMER_KEY;
@@ -35,9 +44,7 @@ export class OvhProvider implements SmsProvider {
       return false;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Ovh = require("ovh");
-    const client = new Ovh({ appKey, appSecret, consumerKey });
+    const client = createOvhClient(appKey, appSecret, consumerKey);
 
     const raw = sender || process.env.OVH_SMS_SENDER || "";
     const effectiveSender = raw ? sanitizeSender(raw) : "";

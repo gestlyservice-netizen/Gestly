@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
-import { Resend } from "resend";
+import { canSendEmail, sendEmail } from "@/lib/outbound/email";
 import { prisma } from "@/lib/prisma";
 import { sendSMS } from "@/lib/sms";
 import { getOvhSmsBalance } from "@/lib/ovh-balance";
@@ -32,7 +32,7 @@ export async function runRelancesCheck(): Promise<RelancesSummary> {
     const user = await prisma.user.findUnique({ where: { id: settings.userId } });
     if (!user) continue;
 
-    const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+    const emailEnabled = canSendEmail();
 
     const factures = await prisma.facture.findMany({
       where: {
@@ -98,13 +98,14 @@ export async function runRelancesCheck(): Promise<RelancesSummary> {
 
         try {
           if (canal === "email") {
-            if (!resend) throw new Error("RESEND_API_KEY non configurée");
+            if (!emailEnabled) throw new Error("RESEND_API_KEY non configurée");
             const message = renderMessage(
               niveau === 1 ? settings.messageJ1 : niveau === 2 ? settings.messageJ2 : settings.messageJ3,
               niveau,
               vars
             );
-            await resend.emails.send({
+            // Lève une exception si Resend refuse l'email → relance "echec".
+            await sendEmail({
               from: process.env.RESEND_FROM_EMAIL ?? "Gestly <onboarding@resend.dev>",
               to: facture.client.email!,
               subject: `Relance — Facture ${facture.number}`,

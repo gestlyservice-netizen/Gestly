@@ -77,9 +77,12 @@ Origine : code retrouvé le 2026-10-22 dans la copie de l'ancien PC, sur une bra
 | `CLAUDE.md`, `ROADMAP.md`, `PROGRESS.md` | 🟡 Commités le 2026-10-22 (`19745bc`), mis à jour depuis, non poussés. `CLAUDE.md` décrit désormais l'agent WhatsApp et Vitest |
 | Environnement de dev isolé (base, Stripe test, SMS/WhatsApp/email factices) | 🔴 Non confirmé. Architecture proposée dans `CLAUDE.md` (section « Environnement de développement isolé ») et `PROGRESS.md` (Mission 5) |
 | `.env.example` (noms de variables uniquement) | 🟡 Créé le 2026-10-22 : 33 variables, valeurs fictives, services sensibles vides par défaut |
-| Garde-fous de code pour le dev (SMS/email simulés, URL WhatsApp configurable partout, `APP_URL` localhost, SSL Postgres configurable) | 🔴 Nécessite des modifications de code soumises à accord |
+| Mode simulation des envois (WhatsApp, SMS, emails, IA) | 🧪 `lib/outbound/` : `simulate` par défaut hors production Vercel, même avec de vraies clés ou `VERCEL_ENV=production` importé en local ; configuration incohérente signalée (log, Sentry, `/api/health`) ; tests prouvant l'absence d'appel externe ; build isolé OK. Non vérifié en exécution (`npm run dev` non lancé) |
+| Gestion des erreurs Resend | 🧪 `sendEmail()` lève une exception sur `{ error }` ; devis, factures, relances et alertes OVH ne sont plus marqués envoyés en cas de refus (17 tests, vérifiés par mutation) |
+| Garde-fous Claude Code (`.claude/settings.json` + hook) | 🧪 Versionnés, hook actif et testé (62 cas, dont contournements) ; limites documentées |
+| Autres garde-fous de dev (`APP_URL` localhost, SSL Postgres configurable) | 🔴 Non traités |
 | Migrations Prisma versionnées (`prisma/migrations`) | 🔴 ⚠️ Pas de `prisma/migrations` ; seulement des scripts SQL manuels dans `prisma/manual-migrations/` (agent WhatsApp) |
-| Framework de tests | 🟢 Vitest 2.1.9 installé, 13 fichiers / 85 tests réussis (2026-10-22). Couverture limitée à l'agent WhatsApp, à `lib/ai/usage` et à `lib/notifications` ; le reste de l'application (devis, factures, relances, Stripe…) n'a **aucun test**. Playwright : 🔴 |
+| Framework de tests | 🟢 Vitest 2.1.9 installé, **18 fichiers / 211 tests réussis** (2026-10-22, `feat/outbound-simulation`). Couverture limitée à l'agent WhatsApp, à `lib/ai/usage` et à `lib/notifications` ; le reste de l'application (devis, factures, relances, Stripe…) n'a **aucun test**. Playwright : 🔴 |
 | Scripts npm `typecheck` / `test` / `check` | 🟡 `test` (`vitest run`) présent ; `typecheck` et `check` : 🔴 |
 | CI GitHub Actions (lint, typecheck, tests, build) | 🔴 |
 | `.claude/` versionné (settings, hooks, sous-agents) | 🔴 ⚠️ `.claude/` est actuellement ignoré par `.gitignore` |
@@ -88,8 +91,8 @@ Origine : code retrouvé le 2026-10-22 dans la copie de l'ancien PC, sur une bra
 
 Décision : la base Supabase actuelle (données fictives) sert au développement. Le plan détaillé et priorisé est dans `PROGRESS.md` (Mission 6).
 
-1. **P0 — Mode simulation des envois** (code, avec accord) : un interrupteur unique qui bloque WhatsApp, SMS, emails et IA hors production. En attendant, l'utilisateur peut vider ces clés dans `.env.local`.
-2. **P0 — `.claude/settings.json` versionné** : interdictions (`prisma db push|migrate`, `vercel`, `git push`, lecture `.env*`, outils Supabase en écriture soumis à confirmation) ; corriger `.gitignore`.
+1. ~~**P0 — Mode simulation des envois**~~ 🧪 Fait (2026-10-22) : `lib/outbound/`, tous les chemins WhatsApp, SMS, email et IA couverts, diagnostics de mauvaise configuration, correction Resend. Fusionné dans `chore/claude-setup` (voir `PROGRESS.md`, Mission 8). Non vérifié en exécution réelle (`npm run dev` non lancé).
+2. ~~**P0 — `.claude/settings.json` versionné**~~ 🧪 Fait : règles `deny`/`ask`, hook `PreToolUse` (`.claude/hooks/guard.mjs`, 62 tests), `.gitignore` corrigé. Limites documentées dans `CLAUDE.md`.
 3. **P0 — Sécurité** : révoquer le token GitHub exposé ; rotation des clés éventuellement présentes dans l'ancien `.env` de l'historique Git ; corriger l'avis Supabase `rls_auto_enable` (SECURITY DEFINER exécutable par `anon`).
 4. **P1 — Tests manquants** : webhook WhatsApp (signature), `job-queue`, `confirm-creation`, `createDevis`, `createClient`, webhook Stripe, moteur de relances, numérotation devis/factures.
 5. **P1 — Dépendances** : correctifs semver, `shadcn` en dev, puis migration Next 15.5.
@@ -103,8 +106,10 @@ Décision : la base Supabase actuelle (données fictives) sert au développement
 - ⚠️ `lib/rate-limit.ts` est en mémoire : sur Vercel (instances serverless multiples), la limite n'est pas globale.
 - ⚠️ Pas d'environnement de dev isolé confirmé : risque d'écriture en production lors d'essais locaux.
 - ⚠️ `lib/url.ts` remplace `localhost` par `https://www.gestly.fr` : les liens générés en dev pointent vers la production.
-- ⚠️ `app/api/devis/[id]/whatsapp/route.ts` appelle `graph.facebook.com` en dur (non simulable par `WHATSAPP_GRAPH_API_BASE_URL`).
-- ⚠️ OVH SMS n'a pas de mode test ; Resend n'a pas de mode « console » dans le code.
+- ✅ (branche `feat/outbound-simulation`) La route `app/api/devis/[id]/whatsapp` (URL Meta en dur), OVH et Resend sont neutralisés par le mode simulation hors production.
+- ✅ Corrigé (2026-10-22) : une erreur renvoyée par `resend.emails.send()` était comptée comme un envoi réussi.
+- ⚠️ Mode simulation en production : définir `OUTBOUND_MODE=live` dans Vercel Production avant le déploiement, puis vérifier `/api/health`. Une mauvaise configuration est désormais signalée (log d'erreur, Sentry, health en 503), mais les envois restent bloqués tant qu'elle n'est pas corrigée.
+- ⚠️ `next start` local avec des variables de production importées (`VERCEL_ENV=production`, `NODE_ENV=production`) passerait en `live` : cas non protégé par la règle (le hook bloque `vercel env pull` pour Claude).
 - ⚠️ Le commit `5cdbf61` affirme que la migration de l'agent WhatsApp a été « appliquée sur Supabase ». **Non vérifié** : avant tout déploiement, il faut comparer le schéma réel de la base à `prisma/schema.prisma` (lecture seule) et ne pas rejouer les scripts SQL à l'aveugle.
 - ⚠️ La copie de l'ancien PC contient un token GitHub en clair dans l'URL de son remote `origin` : à révoquer.
 - ⚠️ `npm ci` signale 48 vulnérabilités (2 faibles, 15 modérées, 27 élevées, 4 critiques), dont `next` 14.2.35. Non analysées en détail.

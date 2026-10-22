@@ -1,4 +1,5 @@
 import { getGraphConfig } from "@/lib/whatsapp/graph-config";
+import { isOutboundSimulated, recordSimulatedOutbound, simulatedId, type OutboundChannel } from "@/lib/outbound/mode";
 
 // Envoi WhatsApp réutilisable — seul point d'appel à l'API Graph Meta pour
 // l'envoi de messages (texte ou document). Ne contient aucune logique
@@ -10,6 +11,14 @@ interface MetaSendResponse {
 }
 
 async function postMessage(body: Record<string, unknown>): Promise<{ messageId: string | null }> {
+  // Mode simulation : contrôlé AVANT getGraphConfig(), pour fonctionner sans
+  // aucune variable WhatsApp et ne jamais toucher au token.
+  if (isOutboundSimulated()) {
+    const channel: OutboundChannel = body.type === "document" ? "whatsapp.document" : "whatsapp.text";
+    recordSimulatedOutbound(channel, typeof body.to === "string" ? body.to : null, `type=${String(body.type)}`);
+    return { messageId: simulatedId("wamid") };
+  }
+
   const { token, phoneNumberId, baseUrl } = getGraphConfig();
 
   const res = await fetch(`${baseUrl}/${phoneNumberId}/messages`, {
