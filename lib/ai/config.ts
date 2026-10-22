@@ -1,11 +1,28 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel, TranscriptionModel } from "ai";
+import { isOutboundSimulated } from "@/lib/outbound/mode";
 
 // L'IA n'est activée que si une clé/gateway est configurée côté serveur.
 // Aucune clé n'est jamais exposée au client — cette fonction ne renvoie
 // qu'un booléen.
+//
+// Mode simulation (lib/outbound/mode.ts) : l'IA est toujours considérée comme
+// NON configurée, même si une clé est présente. Tous les appelants
+// (extraction, transcription, amélioration de message) empruntent alors leur
+// chemin "IA non configurée" existant, sans aucun appel facturé. Les tests
+// injectent leurs propres modèles simulés (ai/test) et ne passent pas par ici.
 export function isAiConfigured(): boolean {
+  if (isOutboundSimulated()) return false;
   return !!(process.env.AI_GATEWAY_API_KEY || process.env.OPENAI_API_KEY);
+}
+
+// Second verrou, au point de résolution du modèle réel : même si un appelant
+// oubliait de vérifier isAiConfigured(), aucun modèle réel n'est jamais
+// construit en mode simulation.
+function assertAiCallsAllowed(): void {
+  if (isOutboundSimulated()) {
+    throw new Error("Appel IA réel bloqué : mode simulation des envois actif (lib/outbound/mode.ts)");
+  }
 }
 
 // Modèle utilisé pour l'extraction structurée du devis depuis WhatsApp
@@ -40,6 +57,7 @@ function directOpenAiClient() {
 // via le SDK OpenAI direct — jamais une chaîne, qui échouerait
 // silencieusement sur l'AI Gateway non configuré.
 export function getWhatsappExtractionModel(): LanguageModel | string {
+  assertAiCallsAllowed();
   const override = process.env.WHATSAPP_AI_MODEL?.trim();
   if (process.env.AI_GATEWAY_API_KEY) {
     return override || DEFAULT_WHATSAPP_EXTRACTION_MODEL;
@@ -55,6 +73,7 @@ export function getWhatsappExtractionModel(): LanguageModel | string {
 export const DEFAULT_WHATSAPP_TRANSCRIPTION_MODEL = "openai/whisper-1";
 
 export function getWhatsappTranscriptionModel(): TranscriptionModel | string {
+  assertAiCallsAllowed();
   const override = process.env.WHATSAPP_TRANSCRIPTION_MODEL?.trim();
   if (process.env.AI_GATEWAY_API_KEY) {
     return override || DEFAULT_WHATSAPP_TRANSCRIPTION_MODEL;

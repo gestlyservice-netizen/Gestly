@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
-import { Resend } from "resend";
+import { sendEmail } from "@/lib/outbound/email";
+import { getOutboundDiagnostics } from "@/lib/outbound/mode";
 
 // Never statically generated — this route hits the DB and must run at runtime only.
 export const dynamic = "force-dynamic";
@@ -18,8 +19,7 @@ async function alertDatabaseDown(detail: string) {
 
   if (!process.env.RESEND_API_KEY) return;
   try {
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    await resend.emails.send({
+    await sendEmail({
       from: process.env.RESEND_FROM_EMAIL ?? "Gestly <onboarding@resend.dev>",
       to: ADMIN_EMAIL,
       subject: "🚨 Gestly — Base de données injoignable",
@@ -51,6 +51,14 @@ export async function GET(request: Request) {
     : "MISSING";
   checks.CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY ? "set" : "MISSING";
   checks.NODE_ENV = process.env.NODE_ENV ?? "undefined";
+
+  // Mode des envois sortants : une configuration incohérente (ex. production
+  // en simulation) fait échouer le contrôle de santé plutôt que de passer
+  // inaperçue.
+  const outbound = getOutboundDiagnostics();
+  checks.outbound = outbound.problems.length > 0
+    ? `FAILED: mode=${outbound.mode} — ${outbound.problems.join(" ; ")}`
+    : `mode=${outbound.mode}`;
 
   // 2. Test database connection
   try {

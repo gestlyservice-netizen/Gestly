@@ -4,6 +4,121 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 8 : validation du mode simulation, correction Resend, build isolé
+
+Branche : `feat/outbound-simulation`. Aucun envoi réel, aucun appel IA, aucune migration, aucune donnée modifiée, aucun déploiement, aucun push. Serveur applicatif non lancé.
+
+### Étape 1 — Validation et durcissement
+
+Relecture complète du diff (16 fichiers modifiés, 9 nouveaux) : garde-fous conformes ; chemins live identiques à l'existant (URL Meta, template, SDK Resend, client OVH). Scan anti-secrets de tous les fichiers modifiés ou nouveaux : aucune correspondance.
+
+Deux faiblesses trouvées et corrigées :
+1. **La production pouvait passer en simulation sans bruit** (variables système Vercel non exposées, ou `OUTBOUND_MODE=simulate` oublié). Ajout de `getOutboundDiagnostics()` : log d'erreur et `Sentry.captureMessage` au démarrage (`instrumentation.ts`), `/api/health` en échec (`checks.outbound = "FAILED: …"` → 503), chaque envoi bloqué journalisé en erreur. Signalé aussi : une valeur `OUTBOUND_MODE` inconnue.
+2. **`VERCEL_ENV=production` importé en local** (ex. `vercel env pull --environment=production`) aurait fait passer `next dev` en `live`. Nouvelle règle : `NODE_ENV=development|test` → simulation, sauf `OUTBOUND_MODE=live` explicite.
+
+Robustesse vérifiée par les tests : `NODE_ENV` absent ou fantaisiste (seul `VERCEL_ENV` décide), `OUTBOUND_MODE` vide, en espaces, mal orthographié ou en majuscules (jamais `live` par erreur en local). En local, `.env.local` ne définit ni `OUTBOUND_MODE` ni `VERCEL_ENV` (inventaire des noms, Mission 6) : `next dev` est donc en simulation quelles que soient les clés présentes.
+
+Chemins protégés : vérifiés par `static-guards.test.ts`, renforcé (les emails ne peuvent plus être envoyés que via `sendEmail()`).
+
+### Étape 2 — Correction Resend
+
+- `lib/outbound/email.ts` : nouvelle fonction `sendEmail()`, qui lève `EmailSendError` si Resend renvoie `{ error }` ou aucun identifiant ; les erreurs réseau sont propagées.
+- Appelants mis à jour : `app/api/devis/[id]/send` (devis non marqué « envoye » si échec → HTTP 500), `app/api/factures/[id]/send` (`sentAt` non renseigné → 500), `lib/relances/engine.ts` (relance enregistrée en « echec » + notification `relance_echouee`), `app/api/health` (log), `app/api/admin/ovh-balance/check`. Pour ce dernier, l'alerte n'est plus enregistrée si l'email échoue, ce qui permet de la retenter au lieu de la bloquer 24 h (même défaut corrigé).
+- Tests (`lib/outbound/email-delivery.test.ts`, 17) : `sendEmail` (succès, refus, absence d'identifiant, erreur réseau, simulation) ; devis, factures, relances et alerte OVH, chacun en succès, en refus et en simulation.
+- **Vérification par mutation** : avec les contrôles de `sendEmail` neutralisés, les 6 tests de refus échouent ; fichier rétabli.
+
+### Étape 3 — Tests et build
+
+| Vérification | Résultat |
+|---|---|
+| `npm.cmd exec -- tsc --noEmit` | ✅ code 0 |
+| `npm.cmd run lint` | ✅ « No ESLint warnings or errors » |
+| `npm.cmd test -- --run` | ✅ **18 fichiers, 211 tests réussis, 0 échec** (+30 : 17 `email-delivery`, 12 `mode`, 1 `static-guards`) |
+| Build isolé | ✅ `npm run build` code 0, compilation, lint, typage, 45 pages |
+
+Build isolé : copie des fichiers suivis et non ignorés (`git ls-files -co --exclude-standard`, donc aucun `.env*` hormis `.env.example`) dans le scratchpad, `node_modules` relié par jonction (retirée ensuite, `node_modules` intact), variables toutes factices (base `127.0.0.1:9`), télémétrie Next, Prisma et Sentry coupée.
+
+Le hook Claude Code a bloqué une de mes commandes de vérification (motif `^\.env` dans un `grep`), un faux positif documenté ; remplacée par une simple liste des fichiers cachés.
+
+**Parcours réel non exécuté** : `npm run dev` n'a pas été lancé. Il chargerait `.env.local` (vraies clés) ; le mode simulation l'empêcherait d'envoyer, mais la base Supabase et Clerk seraient réellement utilisés. À faire avec l'utilisateur.
+
+### Risques résiduels
+
+- Production : `OUTBOUND_MODE=live` (ou `VERCEL_ENV`) à configurer avant déploiement, sinon les envois restent bloqués (signalé, jamais silencieux).
+- `next start` local avec des variables de production importées → `live` (non couvert par la règle).
+- Non simulés : Stripe (mode test prouvé), upload de logo Supabase Storage, Sentry.
+- Le hook ne voit pas les scripts écrits puis exécutés ni les commandes obfusquées.
+- Tests mockés : aucune vérification contre les vraies API (Resend, Meta, OVH).
+
+---
+
+## 2026-10-22 — Mission 7 : mode simulation des envois et garde-fous Claude Code
+
+Branche : `feat/outbound-simulation`, créée depuis `chore/claude-setup` @ `c0642b1` (documentation de la Mission 6 commitée au préalable). Autorisation de l'utilisateur : modifier le code applicatif, ajouter des tests et la configuration nécessaire. Aucun schéma, aucune migration, aucune donnée, aucun envoi réel, aucun appel IA, aucun déploiement, aucun push. Serveur applicatif non lancé.
+
+### Fonctionnement
+
+- `lib/outbound/mode.ts` : `getOutboundMode()` renvoie `live` seulement si `VERCEL_ENV=production`, `simulate` sinon, quelles que soient les clés présentes. `OUTBOUND_MODE=simulate|live` force le mode (toute autre valeur est ignorée). Journal des envois simulés en mémoire, destinataires masqués.
+- `lib/outbound/email.ts` : `getEmailClient()` (vrai `Resend` en live, client simulé sinon) et `canSendEmail()`. Les 5 usages de Resend y passent : `app/api/devis/[id]/send`, `app/api/factures/[id]/send`, `app/api/health`, `app/api/admin/ovh-balance/check`, `lib/relances/engine.ts`.
+- `lib/sms/ovh-client.ts` : seul chargement du SDK `ovh`. Garde-fous dans `OvhProvider.sendSMS` et `getOvhSmsBalance` (solde simulé : 1000 crédits).
+- WhatsApp : garde-fous dans `lib/whatsapp/send.ts` (texte et document), `lib/whatsapp/media.ts` (upload simulé ; métadonnées et téléchargement entrants bloqués via le chemin d'erreur existant) et `app/api/devis/[id]/whatsapp/route.ts` (réponse simulée ; URL Meta et template inchangés en live).
+- IA : `lib/ai/config.ts`, avec `isAiConfigured()` à `false` en simulation et `getWhatsappExtractionModel()` / `getWhatsappTranscriptionModel()` qui lèvent une erreur (second verrou).
+- `instrumentation.ts` : affiche `[outbound] mode=…` au démarrage.
+
+### Chemins d'envoi
+
+| Chemin | Couvert | Preuve |
+|---|---|---|
+| Agent WhatsApp : réponses texte, envoi du PDF de devis (upload + document) | ✅ | `send.ts`/`media.ts` + test runtime |
+| Agent WhatsApp : messages vocaux entrants (métadonnées, téléchargement, Whisper) | ✅ | Média bloqué → échec propre ; IA bloquée ; tests |
+| Agent WhatsApp : extraction IA (`pendingDevis`) | ✅ | `isAiConfigured()` faux + `getWhatsappExtractionModel()` refusé ; test |
+| Route `POST /api/devis/[id]/whatsapp` (URL en dur) | ✅ | Test runtime : simulé sans `fetch`, même sans variables ; en live, même URL et même template |
+| Cron `/api/whatsapp/process-pending` et `waitUntil` du webhook | ✅ (indirect) | Passent par l'agent, donc par `send.ts`/`media.ts`/IA protégés ; pas de test de bout en bout de la route |
+| Relances (cron `/api/relances/check`) email + SMS | ✅ | Test runtime de `runRelancesCheck()` : 2 envois simulés, aucun appel externe |
+| Emails devis, factures, alertes health et solde OVH | ✅ | Via `getEmailClient()` ; garde-fou statique |
+| Solde OVH (`/api/admin/ovh-balance/check`, relances) | ✅ | `getOvhSmsBalance()` simulé |
+| IA : `POST /api/ai/improve-message` | ✅ | Test runtime : 503, `generateText` jamais appelé |
+| Stripe | ❌ hors périmètre | Clé de **test** prouvée (préfixe) ; aucun paiement réel |
+| Upload de logo vers Supabase Storage | ❌ hors périmètre | Stockage du projet, aucun tiers ; listé dans `static-guards.test.ts` |
+| Sentry (DSN local) | ❌ hors périmètre | Erreurs locales envoyées au projet Sentry |
+
+**Aucun chemin d'envoi vers un tiers (WhatsApp, SMS, email, IA) n'est resté non sécurisé.**
+
+### Garde-fous Claude Code
+
+- `.claude/settings.json` : 43 règles `deny` et 1 règle `ask` (`execute_sql`), plus le hook `PreToolUse` sur Bash, PowerShell, les outils fichiers, Grep et les outils MCP.
+- `.claude/hooks/guard.mjs` : analyse textuelle avec échec fermé. **Actif dès sa création** : il a bloqué une de mes commandes (`sed` sur `.gitignore` mentionnant `.claude/settings.local.json`, faux positif), corrigée via l'outil d'édition.
+- `.gitignore` : `.claude/` remplacé par `.claude/settings.local.json`, donc la configuration partagée est versionnée.
+- Contournements testés et bloqués : `bash -c "…"`, `sh -c`, espaces multiples, commandes chaînées (`;`, `&&`, `||`), `git -C . push`, `node node_modules/prisma/build/index.js db push`, `npm.cmd exec -- prisma …`, `npx --yes vercel`, `pnpm dlx vercel`, `vercel.cmd`, `node -e "readFileSync('.env.local')"`, `Get-Content .env.local`, `$env:OUTBOUND_MODE='live'`, `VERCEL_ENV=production`, SQL destructif via `execute_sql`.
+- Test en processus réel (JSON sur stdin) : 6/6 cas conformes, dont une entrée invalide → bloquée.
+- **Limites** (détaillées dans `CLAUDE.md`) : pas d'analyse des scripts écrits puis exécutés, ni des commandes obfusquées ; faux positifs possibles ; ne remplace pas les protections applicatives.
+
+### Résultats
+
+| Vérification | Résultat |
+|---|---|
+| `npm.cmd exec -- tsc --noEmit` | ✅ code 0 |
+| `npm.cmd run lint` | ✅ « No ESLint warnings or errors » |
+| `npm.cmd test -- --run` | ✅ **17 fichiers, 181 tests réussis, 0 échec** (85 existants + 12 `mode` + 14 `no-real-sends` + 8 `static-guards` + 62 `claude-guard`) |
+| Vérification par mutation | ✅ En forçant temporairement le mode à `live`, les 9 tests de simulation de `no-real-sends` **échouent** ; fichier rétabli |
+| `npm run build` | Non relancé dans cette mission |
+
+### Constat préexistant (non corrigé, comportement de production)
+
+- `resend.emails.send()` (SDK 6.10) renvoie `{ data, error }` sans lever d'exception. Les 5 appelants n'examinent que les exceptions : un email refusé par Resend (domaine non vérifié, quota…) est traité comme envoyé, et le devis est marqué « envoyé », la relance « envoyee ». À corriger avec accord.
+
+### Prochaines tâches
+
+1. Relecture, puis fusion de `feat/outbound-simulation` dans `chore/claude-setup` (localement).
+2. `npm run build` isolé, puis premier `npm run dev` en local : vérifier `[outbound] mode=simulate` au démarrage et un parcours de bout en bout (devis → WhatsApp simulé).
+3. Corriger la gestion de `{ error }` de Resend (avec tests).
+4. Tests : route webhook WhatsApp (signature, `waitUntil`), `job-queue`, `confirm-creation`, `createDevis`, `createClient`, webhook Stripe, contrôle d'accès par `userId`.
+5. Sécurité : token GitHub, rotation des clés de l'ancien `.env`, avis Supabase `rls_auto_enable`.
+6. Dépendances (correctifs semver, `shadcn` en dev), puis Next 15.5 ; CI GitHub Actions.
+7. Pré-lancement : vérifier `VERCEL_ENV` en production, ou définir `OUTBOUND_MODE=live` ; configuration de production Vercel.
+
+---
+
 ## 2026-10-22 — Mission 6 : base Supabase actuelle comme base de développement
 
 **Décision de l'utilisateur** : aucun client réel, données Supabase fictives et supprimables. La base actuelle sert au développement et aux tests ; pas de nouvel environnement de base pour l'instant.

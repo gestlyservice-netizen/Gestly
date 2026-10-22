@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { devisPublicLink } from "@/lib/url";
+import { isOutboundSimulated, recordSimulatedOutbound, simulatedId } from "@/lib/outbound/mode";
 import { normalizePhoneE164 } from "@/lib/phone";
 
 export async function POST(
@@ -17,8 +18,9 @@ export async function POST(
 
     const WA_TOKEN    = process.env.WHATSAPP_TOKEN;
     const WA_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const simulated   = isOutboundSimulated();
 
-    if (!WA_TOKEN || !WA_PHONE_ID) {
+    if (!simulated && (!WA_TOKEN || !WA_PHONE_ID)) {
       return NextResponse.json(
         { error: "Variables d'environnement WhatsApp manquantes" },
         { status: 503 }
@@ -38,6 +40,13 @@ export async function POST(
     const to     = normalizePhoneE164(devis.client.phone);
     const amount = devis.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const link   = devisPublicLink(devis.id);
+
+    // Mode simulation : mêmes contrôles que ci-dessus, mais aucun appel à
+    // l'API Graph Meta (URL en dur ci-dessous, inchangée pour la production).
+    if (simulated) {
+      recordSimulatedOutbound("whatsapp.template", to, `template=devis_client devis=${devis.number}`);
+      return NextResponse.json({ success: true, messageId: simulatedId("wamid"), simulated: true });
+    }
 
     const metaRes = await fetch(
       `https://graph.facebook.com/v18.0/${WA_PHONE_ID}/messages`,

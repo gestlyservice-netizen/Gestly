@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { Resend } from "resend";
+import { sendEmail } from "@/lib/outbound/email";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateDocumentPdfBuffer } from "@/lib/pdf/generate-document-pdf";
@@ -64,9 +64,10 @@ export async function POST(
     overrides.message?.trim() ||
     `Bonjour ${facture.client.name},\n\nVeuillez trouver ci-joint votre facture ${facture.number} d'un montant de ${facture.totalTTC.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € TTC.\n\nCordialement,\n${user.companyName}`;
 
-  const resend = new Resend(process.env.RESEND_API_KEY);
   try {
-    await resend.emails.send({
+    // sendEmail lève une exception si Resend refuse l'email : la facture
+    // n'est alors PAS marquée envoyée (catch ci-dessous).
+    await sendEmail({
       from: process.env.RESEND_FROM_EMAIL ?? "Gestly <onboarding@resend.dev>",
       to,
       subject,

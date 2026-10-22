@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { Resend } from "resend";
+import { sendEmail } from "@/lib/outbound/email";
 import type { DevisLine } from "@prisma/client";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -15,7 +15,6 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const resend = new Resend(process.env.RESEND_API_KEY);
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   if (isSubscriptionBlocked(user)) {
@@ -143,7 +142,9 @@ export async function POST(
 </html>`;
 
   try {
-    await resend.emails.send({
+    // sendEmail lève une exception si Resend refuse l'email : le devis n'est
+    // alors PAS marqué envoyé (catch ci-dessous).
+    await sendEmail({
       from: process.env.RESEND_FROM_EMAIL ?? "Gestly <onboarding@resend.dev>",
       to: devis.client.email,
       subject: `Devis ${devis.number} — ${user.companyName}`,

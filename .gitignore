@@ -37,6 +37,8 @@ yarn-error.log*
 next-env.d.ts
 
 /app/generated/prisma
-.claude/
+# Claude Code : la configuration partagée (.claude/settings.json, hooks) est
+# versionnée ; seules les préférences locales restent ignorées.
+.claude/settings.local.json
 
 .vercel

@@ -1,4 +1,5 @@
 import { getGraphConfig } from "@/lib/whatsapp/graph-config";
+import { isOutboundSimulated, recordSimulatedOutbound, simulatedId } from "@/lib/outbound/mode";
 
 interface MetaMediaResponse {
   id?: string;
@@ -13,6 +14,11 @@ export async function uploadWhatsappMedia(
   filename: string,
   mimeType: string
 ): Promise<{ mediaId: string }> {
+  if (isOutboundSimulated()) {
+    recordSimulatedOutbound("whatsapp.media_upload", null, `filename=${filename} size=${fileBuffer.length}`);
+    return { mediaId: simulatedId("media") };
+  }
+
   const { token, phoneNumberId, baseUrl } = getGraphConfig();
 
   const form = new FormData();
@@ -59,6 +65,14 @@ export interface MediaMetadata {
 // appelée avec authentification (cf. downloadMediaBuffer) — jamais rendue
 // publique, jamais réutilisée après quelques minutes.
 export async function getMediaMetadata(mediaId: string): Promise<MediaMetadata> {
+  // Mode simulation : aucun média réel ne peut être récupéré chez Meta. On
+  // emprunte le chemin d'erreur existant "média introuvable", déjà géré par
+  // les appelants (lib/whatsapp/voice-message.ts).
+  if (isOutboundSimulated()) {
+    recordSimulatedOutbound("whatsapp.media_download", null, `mediaId=${mediaId} (bloqué)`);
+    throw new MediaNotFoundError("Média indisponible en mode simulation (aucun appel à Meta)");
+  }
+
   const { token, baseUrl } = getGraphConfig();
 
   const res = await fetch(`${baseUrl}/${mediaId}`, {
@@ -90,6 +104,11 @@ export const MAX_AUDIO_BYTES = 16 * 1024 * 1024;
 // cache, jamais écrit sur disque — le buffer ne vit qu'en mémoire le temps
 // du traitement puis est simplement laissé au ramasse-miettes.
 export async function downloadMediaBuffer(url: string, maxBytes: number = MAX_AUDIO_BYTES): Promise<Buffer> {
+  if (isOutboundSimulated()) {
+    recordSimulatedOutbound("whatsapp.media_download", null, "téléchargement bloqué");
+    throw new Error("Téléchargement de média désactivé en mode simulation (aucun appel à Meta)");
+  }
+
   const { token } = getGraphConfig();
 
   const res = await fetch(url, {

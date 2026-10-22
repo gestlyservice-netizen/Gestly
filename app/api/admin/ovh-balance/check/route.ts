@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { Resend } from "resend";
+import { sendEmail } from "@/lib/outbound/email";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { getOvhSmsBalance } from "@/lib/ovh-balance";
@@ -61,7 +61,6 @@ export async function GET(request: Request) {
   }
 
   const { creditsLeft } = balance;
-  const resend = new Resend(process.env.RESEND_API_KEY);
   const alertsSent: number[] = [];
 
   for (const { limit, subject } of THRESHOLDS) {
@@ -76,14 +75,17 @@ export async function GET(request: Request) {
     if (recent) continue;
 
     try {
-      await resend.emails.send({
+      await sendEmail({
         from: process.env.RESEND_FROM_EMAIL ?? "Gestly <onboarding@resend.dev>",
         to:   ADMIN_EMAIL,
         subject,
         html: alertBody(creditsLeft),
       });
     } catch (err) {
+      // Alerte non envoyée : on ne l'enregistre pas, pour qu'elle soit
+      // retentée au prochain passage au lieu d'être bloquée 24 h.
       console.error(`Resend alert (threshold ${limit}) failed:`, err);
+      continue;
     }
 
     await prisma.ovhBalanceAlert.create({ data: { creditsLeft, threshold: limit } });
