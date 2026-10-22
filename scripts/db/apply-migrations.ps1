@@ -18,11 +18,15 @@
   Journal complet : $HOME\gestly-backups\migration-<date>\ (hors du dépôt).
 
   -PrecheckOnly : exécute seulement A5, sans rien écrire.
+  -RefreezeOnly : étape C2 du plan, juste après le déploiement de la branche :
+                  relance la migration 4 (fige les factures créées entre-temps
+                  par l'ancienne version, sans doublon) puis le postcheck.
 #>
 param(
   [Parameter(Mandatory = $true)][string]$BackupDir,
   [string]$OutRoot = (Join-Path $HOME "gestly-backups"),
-  [switch]$PrecheckOnly
+  [switch]$PrecheckOnly,
+  [switch]$RefreezeOnly
 )
 $ErrorActionPreference = "Stop"
 $repo = Resolve-Path (Join-Path $PSScriptRoot "..\..")
@@ -63,6 +67,12 @@ $found = $null
 Set-PgEnvironment $conn
 $env:PGCLIENTENCODING = "UTF8"
 try {
+  if ($RefreezeOnly) {
+    Invoke-SqlStep "C2 gel des nouvelles factures" (Join-Path $migrations "20261023_freeze_invoice_lines_up.sql")
+    Invoke-SqlStep "C2 postcheck" (Join-Path $migrations "20261023_postcheck.sql")
+    Write-Host "C2 TERMINÉE."
+    return
+  }
   Invoke-SqlStep "A5 contrôle préalable" (Join-Path $migrations "20261022_document_numbers_precheck.sql")
   if ($PrecheckOnly) { Write-Host "Contrôle seul (-PrecheckOnly) : aucune écriture."; return }
 

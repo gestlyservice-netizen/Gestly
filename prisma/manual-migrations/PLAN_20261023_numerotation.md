@@ -1,7 +1,7 @@
 # Plan de bascule — numérotation et conservation des documents (2026-10-23)
 
-> ⚠️ Aucune de ces migrations n'a été exécutée sur Supabase. À appliquer **uniquement** sur autorisation écrite de l'utilisateur, **par l'utilisateur** : Claude Code ne peut ni lancer `psql`, ni `apply_migration`, ni `prisma migrate` (règles `deny` et hook de `.claude/`).
-> Dernière vérification complète : 2026-10-22, Missions 13 et 14 (`PROGRESS.md`).
+> ✅ **Phase B appliquée sur Supabase le 2026-10-23**, sur autorisation écrite de l'utilisateur, par `scripts/db/apply-migrations.ps1` (journal : `%USERPROFILE%\gestly-backups\migration-20261023-001021\journal.txt`). A5, migrations 1 → 4, postcheck, comparaison `after` (0 écart) et tests T1–T10 réussis (`PROGRESS.md`, Mission 17).
+> **Reste la phase C** (fusion, push et déploiement par l'utilisateur), puis C2 : `scripts\db\apply-migrations.ps1 -BackupDir <sauvegarde> -RefreezeOnly`.
 
 ## 1. Les quatre migrations (dans cet ordre)
 
@@ -51,7 +51,7 @@ Le projet Supabase est en **offre gratuite** (vérifié le 2026-10-22) : aucune 
 
 **Arrêt** si A3, A4 ou A5 échoue.
 
-État au 2026-10-22 : **A1 à A4 faites.** La sauvegarde `%USERPROFILE%\gestly-backups\20261022-220318` est prouvée restaurable (`RESTORE-VERIFIED.txt`). La répétition sur la copie des vraies données est réussie : 0 doublon, migrations 1 → 4, postcheck, T1 à T10, 0 écart. A5 est à refaire juste avant B.
+État au 2026-10-23 : **A1 à A5 et B1 à B4 faites.** La sauvegarde `%USERPROFILE%\gestly-backups\20261022-220318` est prouvée restaurable (`RESTORE-VERIFIED.txt`, empreintes revérifiées le 2026-10-23, base inchangée entre la sauvegarde et B1).
 
 ### Phase B — Migrations sur Supabase (autorisation écrite requise)
 

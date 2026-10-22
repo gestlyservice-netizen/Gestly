@@ -4,6 +4,63 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-23 — Mission 17 : migrations de numérotation appliquées sur Supabase, mentions légales corrigées (terminée)
+
+Branche `test/whatsapp-flow`. Aucun push, aucun déploiement. Une seule écriture sur Supabase, sur autorisation écrite de l'utilisateur (« J'autorise l'application des migrations sur Supabase »).
+
+### Configuration v2
+- Installée par l'utilisateur : `scripts/claude-config/` supprimé, `.claude/` à jour, 133 tests du garde-fou OK. Installation commitée (`36c686a`).
+- Faux positif constaté : `ls` sur `%USERPROFILE%\gestly-backups` bloqué (« suppression ou déplacement d'une sauvegarde »). Contourné proprement par les outils de lecture ; à corriger par l'utilisateur s'il le souhaite.
+- Autre blocage, voulu : toute commande qui mentionne `.env*`, même pour vérifier leur absence.
+
+### Sauvegarde (revérifiée avant écriture)
+- `20261022-220318` : 5/5 empreintes SHA-256 identiques à `SHA256SUMS.txt`, `RESTORE-VERIFIED.txt` présent, comptages source = restaurés.
+- Base inchangée depuis la sauvegarde : mêmes comptages, dernière écriture le 2026-09-24.
+
+### Phase B (plan `PLAN_20261023_numerotation.md`)
+- Nouveau `scripts/db/apply-migrations.ps1` :
+  - connexion de `pg-connection.ps1` (jamais affichée) ;
+  - exige `RESTORE-VERIFIED.txt` ;
+  - arrêt à la première erreur ;
+  - journal hors du dépôt ;
+  - modes `-PrecheckOnly` (testé avant l'accord) et `-RefreezeOnly` (C2).
+- Exécution : journal `%USERPROFILE%\gestly-backups\migration-20261023-001021\journal.txt`.
+  - **A5** : 0 doublon ; 5 FK en `c`/`c` ; objets absents ; 5 factures (9 lignes) à figer.
+  - **B1** : migrations 1 → 4, chacune `COMMIT` ; `INSERT 0 9`.
+  - **B2** : `POSTCHECK OK` (8 devis, 13 lignes, 5 factures, 9 lignes figées tracées, 0 compteur).
+  - **B3** : `RÉSULTAT (after) : CONFORME`, 0 écart (300 éléments).
+  - **B4** : T1 à T10 OK, `ROLLBACK`.
+- Après coup : comptages identiques, totaux HT des 5 factures = somme de leurs lignes, RLS active sur `DocumentNumberCounter`.
+- **Test de fumée du vrai code sur la vraie base** (`scripts/db/smoke-numbering.ps1` + `.ts`), dans une transaction annulée :
+  - `createDevis` → DEV-2026-009 puis 010, compteur persistant créé ;
+  - numéro supprimé jamais réattribué ;
+  - « Prochain n° » inférieur refusé, supérieur appliqué (DEV-2026-019) ;
+  - FAC-2026-006, AV-2026-001.
+  **12/12 OK**, base inchangée ensuite.
+- Avis de sécurité Supabase après migration :
+  - seulement `rls_enabled_no_policy` (INFO, attendu : accès par le rôle `postgres`, API REST inutilisée) ;
+  - `rls_auto_enable` exécutable par `anon` (WARN). Vérifié : la fonction renvoie `event_trigger`, donc elle n'est pas appelable. Correctif d'hygiène préparé (`20261023_revoke_rls_auto_enable_up/down.sql`), **non appliqué**.
+
+### Correctif : mentions légales des devis et factures (`24ffdb5`)
+- **Défaut** : « Conditions de paiement » et « Réserve de propriété » étaient enregistrées dans les Paramètres, mais **jamais imprimées** (PDF envoyé par email, pages d'impression). L'interface promettait pourtant la clause de réserve. « Règlement à réception » était écrit en dur, même avec une échéance. La mention d'escompte, obligatoire sur facture, manquait. L'article cité, L.441-6, a été renuméroté L.441-10.
+- **Correction** : `lib/documents/legal-mentions.ts`, source unique pour le PDF serveur, `app/print/devis`, `app/print/factures`, les valeurs par défaut des Paramètres et la création de facture. Un avoir n'affiche plus de conditions de paiement. Pied de page PDF remonté pour 6 lignes.
+- **Preuves** :
+  - 6 tests unitaires + 2 tests PDF réels ;
+  - les 2 tests PDF **échouent sur l'ancien générateur** (restauré temporairement), puis passent ;
+  - toutes les lignes du pied de page sont dans la page.
+- Limite : la ligne Paramètres existante en base conserve son texte de pénalités avec « L.441-6 » (donnée de l'utilisateur, modifiable dans Paramètres).
+
+### Vérifications
+- `tsc` 0, lint propre, **23 fichiers / 411 tests**.
+- Build de production isolé (copie `git archive`, variables factices) : code 0.
+
+### Prochaines actions
+1. **Utilisateur** : phase C. Fusion de `test/whatsapp-flow` dans `main`, push, `OUTBOUND_MODE=live` en Production Vercel, déploiement, `/api/health`. Juste après : `scripts\db\apply-migrations.ps1 -BackupDir "$HOME\gestly-backups\20261022-220318" -RefreezeOnly`.
+2. Sur accord : `20261023_revoke_rls_auto_enable_up.sql`.
+3. Blocages à la commercialisation : voir le compte rendu de la session (base de production, clés de production, recette de bout en bout, sécurité).
+
+---
+
 ## 2026-10-22 — Mission 16 : autonomie de développement et sauvegarde vérifiée de Supabase (terminée)
 
 Aucune migration appliquée sur Supabase, aucune écriture distante, aucun push, aucun déploiement.

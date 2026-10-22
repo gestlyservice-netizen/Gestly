@@ -59,7 +59,7 @@ SaaS de gestion pour artisans et indépendants : clients, devis, factures, avoir
 
 ## Garde-fous Claude Code (`.claude/`)
 
-> **Version 2 préparée (2026-10-22), installée par l'utilisateur** avec `scripts/claude-config/install.ps1`. Tant que `scripts/claude-config/` existe, c'est la v1 décrite plus bas qui est active.
+> **Version 2 active** : installée par l'utilisateur le 2026-10-22 (`.claude/settings.json`, `.claude/hooks/guard.mjs`, 133 tests dans `tests/claude-guard.test.ts`). La description « v1 » plus bas reste valable pour les blocages, sauf `psql` et `prisma migrate diff`, désormais traités comme indiqué ici.
 >
 > **Autonomie de développement (décision de l'utilisateur, 2026-10-22).** Sans confirmation :
 > - fichiers du projet, dépendances, Node, TypeScript, lint, tests, builds, `npm run dev` (envois en simulation) ;
@@ -185,10 +185,11 @@ prisma/schema.prisma  22 modèles : les 15 d'origine (User, Client, Devis(+Line)
                       Avoir(+Line), Settings, RelanceSettings, Relance, Event, Notification,
                       Opportunity, OvhBalanceAlert) + WhatsappConversation, WhatsappMessage,
                       WhatsappJob, WhatsappSend, AiUsageEvent, RelanceDevisSettings, RelanceDevis
-prisma/manual-migrations/  Scripts SQL manuels up/down de l'agent WhatsApp (NE PAS exécuter)
+prisma/manual-migrations/  Scripts SQL manuels up/down (agent WhatsApp, numérotation) — appliqués, NE PAS rejouer
+scripts/db/           Sauvegarde, preuve de restauration, application des migrations, test de fumée
 ```
 
-Il n'existe **pas** de dossier `prisma/migrations` : le schéma n'est pas versionné par migrations Prisma. Les scripts de `prisma/manual-migrations/` auraient été appliqués sur Supabase (commit `5cdbf61`), ce qui **n'est pas vérifié**. Ne jamais les exécuter, ni créer ou appliquer de migration, sans décision explicite de l'utilisateur.
+Il n'existe **pas** de dossier `prisma/migrations` : le schéma n'est pas versionné par migrations Prisma. État de Supabase (vérifié) : migrations de l'agent WhatsApp présentes (2026-10-22) ; 4 migrations de numérotation appliquées le 2026-10-23 via `scripts/db/apply-migrations.ps1` (base conforme à `schema.prisma`, 0 écart). `20261023_revoke_rls_auto_enable_up.sql` est préparé, **non appliqué**. Ne jamais exécuter un script, ni créer ou appliquer de migration, sans décision explicite de l'utilisateur.
 
 ## Conventions
 
@@ -218,7 +219,7 @@ npm.cmd run lint               # ESLint (next/core-web-vitals + next/typescript)
 npm.cmd test -- --run          # Vitest, une passe
 ```
 
-Dernier résultat de référence (2026-10-22, branche `feat/outbound-simulation`) : voir `PROGRESS.md`, Mission 7.
+Dernier résultat de référence (2026-10-23, branche `test/whatsapp-flow`) : tsc 0, lint propre, 23 fichiers / 411 tests, build isolé OK — voir `PROGRESS.md`, Mission 17.
 
 Règles pour les tests :
 - Les tests doivent rester **entièrement simulés** : `vi.mock("@/lib/prisma")`, modules d'envoi (`@/lib/whatsapp/send`, `media`, SDK Stripe/Resend/OVH) mockés, modèles IA injectés via `MockLanguageModelV4` / `MockTranscriptionModelV4` (`ai/test`) grâce au paramètre `opts.model`. Aucun test ne doit lire `.env*` ni ouvrir une connexion réelle.
