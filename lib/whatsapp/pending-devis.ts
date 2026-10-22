@@ -336,6 +336,16 @@ export async function applyExtractionToPendingDevis(
   if (raw.intent === "devis" && !raw.plusieursDevisDetectes) {
     const merged = mergePendingDevis(current, raw, defaultTvaRate, now);
 
+    // Un téléphone donné APRÈS le nom (message suivant) est un identifiant
+    // fort : tant que le client n'a pas été trouvé avec certitude (aucune
+    // correspondance ou plusieurs candidats), on relance la recherche avec
+    // ce numéro — sinon une nouvelle fiche serait créée en doublon d'un
+    // client existant. Une correspondance unique déjà établie n'est jamais
+    // remise en cause par ce seul numéro.
+    if (raw.client.telephone !== null && merged.client.matchStatus !== "unique_match") {
+      merged.client.matchStatus = "not_searched";
+    }
+
     if (merged.client.nomMentionne && merged.client.matchStatus === "not_searched") {
       const resolution = await resolveClientFn(merged.client.nomMentionne, merged.client.telephone.value);
       merged.client.matchedClientId = resolution.matchedClientId;

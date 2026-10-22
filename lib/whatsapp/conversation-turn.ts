@@ -22,11 +22,13 @@ import {
   buildCannotSendReply,
   buildSendFailedReply,
   buildEscalationReply,
+  buildRecapReply,
 } from "@/lib/whatsapp/reply-builder";
 import {
   emptyPendingDevis,
   applyExtractionToPendingDevis,
   applyStuckTracking,
+  computeNextState,
   type PendingDevis,
 } from "@/lib/whatsapp/pending-devis";
 import { DEFAULT_TVA_RATE } from "@/lib/ai/config";
@@ -207,6 +209,25 @@ export async function processTextMessage(
 
     // "ambigu" ou valeur inattendue : ne rien créer, redemander clairement.
     return buildAmbiguousConfirmationReply(currentPendingDevis);
+  }
+
+  // ── Reprise après un refus de création ────────────────────────────────
+  // Après « non », la conversation repasse en collecte avec un brouillon
+  // pourtant complet. Un « oui » ultérieur (« finalement c'est bon ») ne
+  // doit pas répondre qu'il manque des informations : on repropose le
+  // récapitulatif et on attend une confirmation explicite, sans rien créer.
+  if (
+    raw.intent === "confirmation" &&
+    raw.reponseConfirmation === "oui" &&
+    conversationRow.state === "collecting" &&
+    computeNextState(currentPendingDevis) === "awaiting_creation_confirmation"
+  ) {
+    const resumed: PendingDevis = { ...currentPendingDevis, state: "awaiting_creation_confirmation" };
+    await prisma.whatsappConversation.update({
+      where: { id: conversationId },
+      data: { pendingDevis: resumed as unknown as object, state: resumed.state },
+    });
+    return buildRecapReply(resumed);
   }
 
   // ── Cas général (étape 4 inchangée) : compréhension + fusion du brouillon

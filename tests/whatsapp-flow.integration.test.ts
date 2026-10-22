@@ -22,11 +22,12 @@ const h = vi.hoisted(() => ({
   extractionPrompts: [] as string[],
   transcriptions: [] as unknown[],
   media: null as null | { mimeType: string },
+  clerkUserId: null as string | null, // identité de la session web simulée
 }));
 
 vi.mock("@/lib/prisma", async () => ({ prisma: (await import("@/tests/support/fake-prisma")).fakePrisma }));
 vi.mock("@vercel/functions", () => ({ waitUntil: (p: Promise<unknown>) => void h.pending.push(p) }));
-vi.mock("@clerk/nextjs/server", () => ({ auth: vi.fn(async () => ({ userId: null })), currentUser: vi.fn(async () => null) }));
+vi.mock("@clerk/nextjs/server", () => ({ auth: vi.fn(async () => ({ userId: h.clerkUserId })), currentUser: vi.fn(async () => null) }));
 vi.mock("@/lib/pdf/generate-document-pdf", () => ({ generateDevisPdfBuffer: vi.fn(() => Buffer.from("%PDF-1.4 devis fictif")) }));
 
 // IA simulée : le vrai code d'extraction et de transcription s'exécute,
@@ -79,8 +80,14 @@ vi.mock("@/lib/whatsapp/media", async (importOriginal) => {
 });
 
 import { fakePrisma } from "@/tests/support/fake-prisma";
-import { POST as webhookPost } from "@/app/api/whatsapp/webhook/route";
+import { POST as webhookPost, GET as webhookGet } from "@/app/api/whatsapp/webhook/route";
+import { GET as processPendingGet } from "@/app/api/whatsapp/process-pending/route";
+import { POST as reactivatePost } from "@/app/api/whatsapp/reactivate/route";
+import { POST as devisWhatsappPost } from "@/app/api/devis/[id]/whatsapp/route";
+import { POST as devisDuplicatePost } from "@/app/api/devis/[id]/duplicate/route";
+import { POST as devisCreatePost } from "@/app/api/devis/route";
 import { processWhatsappJob } from "@/lib/whatsapp/agent";
+import { MAX_ATTEMPTS, STALE_PROCESSING_MS } from "@/lib/whatsapp/job-queue";
 import { clearSimulatedOutbox, getSimulatedOutbox } from "@/lib/outbound/mode";
 
 // ── Données de test (toutes fictives) ────────────────────────────────────
@@ -182,8 +189,12 @@ beforeEach(() => {
   h.extractionPrompts.length = 0;
   h.transcriptions.length = 0;
   h.media = null;
+  h.clerkUserId = null;
   process.env.WHATSAPP_APP_SECRET = SECRET;
   delete process.env.OUTBOUND_MODE;
+  delete process.env.WHATSAPP_AI_MONTHLY_LIMIT;
+  delete process.env.CRON_SECRET;
+  delete process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
 
   artisanA = fakePrisma.seed("user", {
     clerkId: "clerk_A", email: "artisan-a@example.com", companyName: "Artisan A",
@@ -205,6 +216,7 @@ afterEach(() => {
   expect(fetchSpy).not.toHaveBeenCalled();
   if (savedSecret === undefined) delete process.env.WHATSAPP_APP_SECRET;
   else process.env.WHATSAPP_APP_SECRET = savedSecret;
+  for (const k of ["WHATSAPP_AI_MONTHLY_LIMIT", "CRON_SECRET", "WHATSAPP_WEBHOOK_VERIFY_TOKEN"]) delete process.env[k];
   vi.restoreAllMocks();
 });
 
@@ -518,5 +530,307 @@ describe("isolation entre comptes Gestly", () => {
 
     expect(res.status).toBe(403);
     expect(rows("whatsappMessage")).toHaveLength(0);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Mission 10 — défauts corrigés et couverture complémentaire
+// ════════════════════════════════════════════════════════════════════════
+
+const YEAR = new Date().getFullYear();
+const devisNum = (seq: number) => `DEV-${YEAR}-${String(seq).padStart(3, "0")}`;
+const A_PHONE_E164 = "+33611111111";
+const longAgo = () => new Date(Date.now() - STALE_PROCESSING_MS - 60_000);
+const cronCall = (authorization?: string) =>
+  processPendingGet(new Request("http://localhost/api/whatsapp/process-pending", { headers: authorization ? { authorization } : {} }));
+
+// Prépare un message entrant d'A et son job dans un état donné, comme le
+// laisserait un traitement interrompu (crash, timeout).
+function seedJob(job: { status: string; attempts?: number; updatedAt?: Date }, msg: { extractionStatus?: string; updatedAt?: Date } = {}) {
+  const conv = fakePrisma.seed("whatsappConversation", { userId: artisanA.id, phoneNumber: A_PHONE_E164 });
+  const message = fakePrisma.seed("whatsappMessage", {
+    conversationId: conv.id, direction: "in", type: "text", externalId: `wamid.seed.${++wamid}`,
+    content: "Devis pour Mme Martin, peinture 1200 €", ...msg,
+  });
+  return fakePrisma.seed("whatsappJob", { messageId: message.id, ...job });
+}
+
+describe("reprise après un refus de création", () => {
+  it("[régression] un « oui » après un refus repropose le récapitulatif, puis crée sur confirmation", async () => {
+    h.extractions.push(DEVIS_MARTIN, NON, OUI, OUI);
+    await deliver(FROM_A, text("Devis pour Mme Martin, peinture 1200 €"));
+    await deliver(FROM_A, text("non"));
+    expect(conversationOf(artisanA.id).state).toBe("collecting");
+
+    await deliver(FROM_A, text("finalement oui, c'est bon"));
+    expect(lastReply()).toMatch(/Voici le récapitulatif/);
+    expect(lastReply()).not.toMatch(/Il me manque/);
+    expect(conversationOf(artisanA.id).state).toBe("awaiting_creation_confirmation");
+    expect(rows("devis")).toHaveLength(0); // jamais de création sans nouvelle confirmation
+
+    await deliver(FROM_A, text("oui"));
+    expect(lastReply()).toMatch(/a été créé/);
+    expect(rows("devis")).toHaveLength(1);
+  });
+});
+
+describe("téléphone donné après le nom", () => {
+  it("[régression] la fiche existante est retrouvée par le numéro : aucun doublon de client", async () => {
+    const existing = fakePrisma.seed("client", { userId: artisanA.id, name: "Sophie Martin", phone: CLIENT_PHONE });
+    h.extractions.push(
+      ext({ client: { nom: "Mme Martin" }, objet: "Peinture", lignes: [line("Peinture salon", 1200)] }),
+      ext({ client: { telephone: "+33 6 22 22 22 22" } }),
+      OUI
+    );
+
+    await deliver(FROM_A, text("Devis pour Mme Martin, peinture salon 1200 €"));
+    await deliver(FROM_A, text("son numéro : +33 6 22 22 22 22"));
+    await deliver(FROM_A, text("oui"));
+
+    expect(rows("client")).toHaveLength(1);
+    expect(rows("devis")[0].clientId).toBe(existing.id);
+  });
+});
+
+describe("numérotation partagée web / WhatsApp / duplication", () => {
+  it("[régression] après suppression d'un devis, aucun numéro rejoué quel que soit le canal", async () => {
+    const client = fakePrisma.seed("client", { userId: artisanA.id, name: "Client web", phone: "06 77 77 77 77" });
+    fakePrisma.seed("devis", { userId: artisanA.id, clientId: client.id, number: devisNum(1) });
+    fakePrisma.seed("devis", { userId: artisanA.id, clientId: client.id, number: devisNum(3) }); // 002 supprimé
+
+    await createDevisForMartin(); // WhatsApp
+    h.clerkUserId = "clerk_A";
+    const web = await devisCreatePost(new Request("http://localhost/api/devis", {
+      method: "POST",
+      body: JSON.stringify({ clientId: client.id, lines: [{ description: "Prestation web", quantity: 1, unitPriceHT: 100, tvaRate: 20 }] }),
+    }));
+    const webDevis = await web.json();
+    const dup = await devisDuplicatePost(new Request("http://localhost/x", { method: "POST" }), { params: { id: webDevis.id } });
+    const dupDevis = await dup.json();
+
+    const whatsappDevis = rows("devis").find((d) => d.clientId !== client.id)!;
+    expect([whatsappDevis.number, webDevis.number, dupDevis.number]).toEqual([devisNum(4), devisNum(5), devisNum(6)]);
+    const numbers = rows("devis").map((d) => d.number);
+    expect(new Set(numbers).size).toBe(numbers.length);
+    // Chaque canal a numéroté sous verrou, dans sa transaction.
+    expect(fakePrisma.advisoryLocks).toHaveLength(3);
+    expect(fakePrisma.advisoryLocks.every((l) => l.inTransaction && l.key === `gestly:devis-number:${artisanA.id}`)).toBe(true);
+  });
+});
+
+describe("vérification GET du webhook Meta", () => {
+  const verify = (params: Record<string, string>) =>
+    webhookGet(new Request(`http://localhost/api/whatsapp/webhook?${new URLSearchParams(params)}`));
+
+  it("jeton correct : renvoie le challenge", async () => {
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = "jeton-verification-test";
+    const res = await verify({ "hub.mode": "subscribe", "hub.verify_token": "jeton-verification-test", "hub.challenge": "1158201444" });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("1158201444");
+  });
+
+  it("jeton faux, mode inattendu ou challenge absent : 403", async () => {
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = "jeton-verification-test";
+    expect((await verify({ "hub.mode": "subscribe", "hub.verify_token": "faux", "hub.challenge": "1" })).status).toBe(403);
+    expect((await verify({ "hub.mode": "unsubscribe", "hub.verify_token": "jeton-verification-test", "hub.challenge": "1" })).status).toBe(403);
+    expect((await verify({ "hub.mode": "subscribe", "hub.verify_token": "jeton-verification-test" })).status).toBe(403);
+  });
+
+  it("aucun jeton configuré : 403, même avec un jeton vide (échec fermé)", async () => {
+    expect((await verify({ "hub.mode": "subscribe", "hub.verify_token": "", "hub.challenge": "1" })).status).toBe(403);
+  });
+});
+
+describe("route cron /api/whatsapp/process-pending", () => {
+  it("refuse sans secret, avec un mauvais secret, et pour un artisan connecté non administrateur", async () => {
+    process.env.CRON_SECRET = "secret-cron-test";
+    expect((await cronCall()).status).toBe(401);
+    expect((await cronCall("Bearer mauvais")).status).toBe(401);
+    h.clerkUserId = "clerk_A";
+    expect((await cronCall()).status).toBe(401);
+  });
+
+  it("traite un job en attente et en rend compte", async () => {
+    process.env.CRON_SECRET = "secret-cron-test";
+    seedJob({ status: "pending" });
+    h.extractions.push(DEVIS_MARTIN);
+
+    const res = await cronCall("Bearer secret-cron-test");
+
+    expect(await res.json()).toEqual({ ok: true, candidates: 1, processed: 1 });
+    expect(rows("whatsappJob")[0].status).toBe("done");
+    expect(lastReply()).toMatch(/Voici le récapitulatif/);
+  });
+
+  it("reprise après interruption : job bloqué en « processing » depuis trop longtemps → repris", async () => {
+    process.env.CRON_SECRET = "secret-cron-test";
+    seedJob({ status: "processing", attempts: 1, updatedAt: longAgo() });
+    h.extractions.push(DEVIS_MARTIN);
+
+    expect(await (await cronCall("Bearer secret-cron-test")).json()).toMatchObject({ candidates: 1, processed: 1 });
+    expect(rows("whatsappJob")[0]).toMatchObject({ status: "done", attempts: 2 });
+  });
+
+  it("job en cours récent : jamais traité deux fois en parallèle", async () => {
+    process.env.CRON_SECRET = "secret-cron-test";
+    seedJob({ status: "processing", attempts: 1 });
+
+    expect(await (await cronCall("Bearer secret-cron-test")).json()).toMatchObject({ candidates: 0, processed: 0 });
+    expect(h.extractionPrompts).toHaveLength(0);
+  });
+
+  it("job en échec : repris tant qu'il reste des tentatives, abandonné au plafond", async () => {
+    process.env.CRON_SECRET = "secret-cron-test";
+    const retryable = seedJob({ status: "failed", attempts: 1 });
+    const exhausted = seedJob({ status: "failed", attempts: MAX_ATTEMPTS });
+    h.extractions.push(DEVIS_MARTIN);
+
+    expect(await (await cronCall("Bearer secret-cron-test")).json()).toMatchObject({ candidates: 1, processed: 1 });
+    expect(rows("whatsappJob").find((j) => j.id === retryable.id)!.status).toBe("done");
+    expect(rows("whatsappJob").find((j) => j.id === exhausted.id)).toMatchObject({ status: "failed", attempts: MAX_ATTEMPTS });
+  });
+
+  it("extraction interrompue (bloquée en « processing ») : reprise avec un seul appel IA", async () => {
+    process.env.CRON_SECRET = "secret-cron-test";
+    seedJob({ status: "failed", attempts: 1 }, { extractionStatus: "processing", updatedAt: longAgo() });
+    h.extractions.push(DEVIS_MARTIN);
+
+    await cronCall("Bearer secret-cron-test");
+
+    expect(h.extractionPrompts).toHaveLength(1);
+    expect(rows("whatsappMessage").find((m) => m.direction === "in")!.extractionStatus).toBe("done");
+  });
+
+  it("extraction en cours ailleurs (récente) : aucun second appel IA, job en échec reprenable", async () => {
+    process.env.CRON_SECRET = "secret-cron-test";
+    seedJob({ status: "pending" }, { extractionStatus: "processing" });
+
+    await cronCall("Bearer secret-cron-test");
+
+    expect(h.extractionPrompts).toHaveLength(0);
+    expect(rows("whatsappJob")[0]).toMatchObject({ status: "failed" });
+    expect(rows("whatsappJob")[0].lastError).toMatch(/déjà en cours/);
+  });
+});
+
+describe("STOP / START et opt-out", () => {
+  it("[régression] STOP désactive l'assistant (silence total), START le réactive depuis WhatsApp", async () => {
+    await deliver(FROM_A, text("STOP"));
+    expect(lastReply()).toMatch(/assistant Gestly est désactivé/);
+    expect(conversationOf(artisanA.id).optedOut).toBe(true);
+
+    const repliesBefore = repliesTo(artisanA.id).length;
+    await deliver(FROM_A, text("Devis pour Mme Martin, peinture 1200 €"));
+    expect(repliesTo(artisanA.id)).toHaveLength(repliesBefore); // silence
+    expect(h.extractionPrompts).toHaveLength(0);
+
+    await deliver(FROM_A, text("Start !"));
+    expect(lastReply()).toMatch(/assistant Gestly est réactivé/);
+    expect(conversationOf(artisanA.id).optedOut).toBe(false);
+
+    h.extractions.push(DEVIS_MARTIN);
+    await deliver(FROM_A, text("Devis pour Mme Martin, peinture 1200 €"));
+    expect(lastReply()).toMatch(/Voici le récapitulatif/);
+  });
+
+  it("un mot « stop » au milieu d'une phrase n'est pas une commande", async () => {
+    h.extractions.push(ext({ intent: "hors_sujet" }));
+    await deliver(FROM_A, text("il faut stopper le chantier demain"));
+    expect(conversationOf(artisanA.id).optedOut).toBe(false);
+  });
+
+  it("route de réactivation : un artisan ne réactive jamais les conversations d'un autre", async () => {
+    await deliver(FROM_A, text("STOP"));
+    h.clerkUserId = "clerk_B";
+    expect(await (await reactivatePost()).json()).toEqual({ reactivated: 0 });
+    expect(conversationOf(artisanA.id).optedOut).toBe(true);
+
+    h.clerkUserId = "clerk_A";
+    expect(await (await reactivatePost()).json()).toEqual({ reactivated: 1 });
+    expect(conversationOf(artisanA.id).optedOut).toBe(false);
+  });
+
+  it("STOP d'un client final : opt-out de sa fiche, puis l'envoi de devis lui est refusé", async () => {
+    const client = fakePrisma.seed("client", { userId: artisanA.id, name: "Mme Martin", phone: CLIENT_PHONE });
+    await deliver("33622222222", text("STOP"));
+    expect(rows("client").find((c) => c.id === client.id)!.whatsappOptOut).toBe(true);
+    expect(rows("whatsappConversation")).toHaveLength(0); // jamais de conversation pour un client final
+
+    await createDevisForMartin();
+    h.extractions.push(OUI);
+    await deliver(FROM_A, text("oui"));
+
+    expect(lastReply()).toMatch(/s'est désinscrit/);
+    expect(documentsSent()).toHaveLength(0);
+    expect(rows("devis")[0].status).toBe("brouillon");
+  });
+});
+
+describe("plafond d'utilisation IA", () => {
+  it("plafond atteint : réponse dédiée, aucun appel IA ; un autre artisan n'est pas affecté", async () => {
+    process.env.WHATSAPP_AI_MONTHLY_LIMIT = "2";
+    for (let i = 0; i < 2; i++) fakePrisma.seed("aiUsageEvent", { userId: artisanA.id, kind: "extraction", success: true });
+
+    await deliver(FROM_A, text("Devis pour Mme Martin, peinture 1200 €"));
+    expect(lastReply()).toMatch(/limite d'utilisation pour ce mois-ci/);
+    expect(h.extractionPrompts).toHaveLength(0);
+    expect(rows("aiUsageEvent")).toHaveLength(2);
+
+    h.extractions.push(DEVIS_MARTIN);
+    await deliver(FROM_B, text("Devis pour Mme Martin, peinture 1200 €"));
+    expect(lastReply(artisanB.id)).toMatch(/Voici le récapitulatif/);
+  });
+
+  it("les appels des mois précédents ne comptent pas", async () => {
+    process.env.WHATSAPP_AI_MONTHLY_LIMIT = "2";
+    const lastMonth = new Date();
+    lastMonth.setUTCMonth(lastMonth.getUTCMonth() - 1);
+    for (let i = 0; i < 5; i++) fakePrisma.seed("aiUsageEvent", { userId: artisanA.id, kind: "extraction", success: true, createdAt: lastMonth });
+    h.extractions.push(DEVIS_MARTIN);
+
+    await deliver(FROM_A, text("Devis pour Mme Martin, peinture 1200 €"));
+    expect(lastReply()).toMatch(/Voici le récapitulatif/);
+  });
+
+  it("STOP reste possible même plafond atteint (aucun appel IA)", async () => {
+    process.env.WHATSAPP_AI_MONTHLY_LIMIT = "1";
+    fakePrisma.seed("aiUsageEvent", { userId: artisanA.id, kind: "extraction", success: true });
+    await deliver(FROM_A, text("stop"));
+    expect(lastReply()).toMatch(/désactivé/);
+  });
+});
+
+describe("isolation des routes entre artisans", () => {
+  it("envoi WhatsApp d'un devis : un autre artisan obtient 404, rien n'est envoyé", async () => {
+    await createDevisForMartin();
+    const devisId = rows("devis")[0].id;
+    clearSimulatedOutbox();
+
+    h.clerkUserId = "clerk_B";
+    const res = await devisWhatsappPost(new Request("http://localhost/x", { method: "POST" }), { params: { id: devisId } });
+
+    expect(res.status).toBe(404);
+    expect(getSimulatedOutbox()).toHaveLength(0);
+  });
+
+  it("duplication d'un devis : un autre artisan obtient 404, aucune copie", async () => {
+    await createDevisForMartin();
+    h.clerkUserId = "clerk_B";
+    const res = await devisDuplicatePost(new Request("http://localhost/x", { method: "POST" }), { params: { id: rows("devis")[0].id } });
+
+    expect(res.status).toBe(404);
+    expect(rows("devis")).toHaveLength(1);
+  });
+
+  it("création web avec le client d'un autre artisan : refusée (404)", async () => {
+    const clientOfA = fakePrisma.seed("client", { userId: artisanA.id, name: "Client de A" });
+    h.clerkUserId = "clerk_B";
+    const res = await devisCreatePost(new Request("http://localhost/api/devis", {
+      method: "POST",
+      body: JSON.stringify({ clientId: clientOfA.id, lines: [{ description: "x", quantity: 1, unitPriceHT: 1, tvaRate: 20 }] }),
+    }));
+
+    expect(res.status).toBe(404);
+    expect(rows("devis")).toHaveLength(0);
   });
 });

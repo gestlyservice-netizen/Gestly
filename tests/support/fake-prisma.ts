@@ -172,6 +172,7 @@ export class FakePrisma {
     this.store = emptyStore();
     this.failures = [];
     this.calls.length = 0;
+    this.advisoryLocks.length = 0;
   }
 
   // Horloge strictement croissante (deux écritures n'ont jamais le même
@@ -197,14 +198,37 @@ export class FakePrisma {
     return clone(this.store[model]);
   }
 
-  async $transaction<T>(fn: (tx: FakePrisma) => Promise<T>): Promise<T> {
+  // Verrous consultatifs demandés via $queryRaw (pg_advisory_xact_lock),
+  // avec l'état "dans une transaction ou non" au moment de la demande.
+  readonly advisoryLocks: { key: unknown; inTransaction: boolean }[] = [];
+  private transactionDepth = 0;
+
+  async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
     const snapshot = clone(this.store);
+    this.transactionDepth++;
     try {
-      return await fn(this);
+      // Comme Prisma : le client de transaction n'a pas de $transaction.
+      const tx = Object.fromEntries([
+        ...Object.keys(MODELS).map((m) => [m, this.delegates[m]]),
+        ["$queryRaw", this.$queryRaw.bind(this)],
+      ]);
+      return await fn(tx);
     } catch (err) {
       this.store = snapshot; // annulation complète, comme une vraie transaction
       throw err;
+    } finally {
+      this.transactionDepth--;
     }
+  }
+
+  async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> {
+    const sql = strings.join("?");
+    this.calls.push({ op: "$queryRaw", args: { sql, values } });
+    if (/pg_advisory_xact_lock/.test(sql)) {
+      this.advisoryLocks.push({ key: values[0], inTransaction: this.transactionDepth > 0 });
+      return [{ locked: 1 }];
+    }
+    throw new Error(`fake-prisma : requête SQL brute non gérée : ${sql}`);
   }
 
   private maybeFail(op: string, args: unknown): void {

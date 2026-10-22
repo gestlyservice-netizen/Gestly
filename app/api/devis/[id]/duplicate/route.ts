@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { nextDevisNumber } from "@/lib/devis/numbering";
 
 export async function POST(
   _req: Request,
@@ -19,17 +20,13 @@ export async function POST(
     });
     if (!source) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
 
-    const year = new Date().getFullYear();
-    const count = await prisma.devis.count({
-      where: { userId: user.id, number: { startsWith: `DEV-${year}-` } },
-    });
-    const number = `DEV-${year}-${String(count + 1).padStart(3, "0")}`;
-
-    const copy = await prisma.devis.create({
+    // Même numérotation que la création web et WhatsApp (lib/devis/numbering.ts) :
+    // attribuée sous verrou, dans la transaction qui crée la copie.
+    const copy = await prisma.$transaction(async (tx) => tx.devis.create({
       data: {
         userId:       user.id,
         clientId:     source.clientId,
-        number,
+        number:       await nextDevisNumber(tx, user.id),
         status:       "brouillon",
         totalHT:      source.totalHT,
         totalTVA:     source.totalTVA,
@@ -47,7 +44,7 @@ export async function POST(
         },
       },
       include: { lines: true },
-    });
+    }));
 
     return NextResponse.json(copy, { status: 201 });
   } catch (err) {

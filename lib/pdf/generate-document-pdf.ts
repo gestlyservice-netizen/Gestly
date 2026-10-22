@@ -56,8 +56,21 @@ function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
 }
 
+// Le format fr-FR de Node sépare les milliers par une espace fine
+// insécable (U+202F), absente de l'encodage des polices standard de jsPDF :
+// toute la chaîne était alors écrite en 16 bits et s'affichait corrompue
+// (« 1/740,00 », caractères espacés) pour tout montant ≥ 1 000 €. On la
+// remplace par l'espace insécable classique (U+00A0), encodable.
 const fmt = (n: number) =>
-  n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n
+    .toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    .replace(/[  ]/g, " ");
+
+// Mise en page A4 (mm) : le contenu s'arrête au-dessus du pied de page
+// (filet à FOOTER_Y - 6, mentions légales dessous), présent sur chaque page.
+const PAGE_TOP = 20;
+const FOOTER_Y = 275;
+const CONTENT_BOTTOM = FOOTER_Y - 10;
 
 export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -139,23 +152,37 @@ export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
   const colX = [marginX];
   for (let i = 0; i < colWidths.length - 1; i++) colX.push(colX[i] + colWidths[i]);
 
-  doc.setFillColor(r, g, b);
-  doc.rect(marginX, y, contentWidth, 8, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
-  doc.setTextColor(255, 255, 255);
-  doc.text("Description", colX[0] + 2, y + 5.3);
-  doc.text("Qté", colX[1] + colWidths[1] - 2, y + 5.3, { align: "right" });
-  doc.text("Prix HT", colX[2] + colWidths[2] - 2, y + 5.3, { align: "right" });
-  doc.text("TVA", colX[3] + colWidths[3] - 2, y + 5.3, { align: "right" });
-  doc.text("Total HT", colX[4] + colWidths[4] - 2, y + 5.3, { align: "right" });
-  y += 8;
+  const drawTableHeader = () => {
+    doc.setFillColor(r, g, b);
+    doc.rect(marginX, y, contentWidth, 8, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text("Description", colX[0] + 2, y + 5.3);
+    doc.text("Qté", colX[1] + colWidths[1] - 2, y + 5.3, { align: "right" });
+    doc.text("Prix HT", colX[2] + colWidths[2] - 2, y + 5.3, { align: "right" });
+    doc.text("TVA", colX[3] + colWidths[3] - 2, y + 5.3, { align: "right" });
+    doc.text("Total HT", colX[4] + colWidths[4] - 2, y + 5.3, { align: "right" });
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+  };
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
+  // Nouvelle page si le prochain bloc dépasserait la zone de contenu
+  // (auparavant, tout ce qui suivait était dessiné hors de la page A4 :
+  // lignes et totaux invisibles au-delà d'une vingtaine de lignes).
+  const ensureSpace = (height: number, onNewPage?: () => void) => {
+    if (y + height <= CONTENT_BOTTOM) return;
+    doc.addPage();
+    y = PAGE_TOP;
+    onNewPage?.();
+  };
+
+  drawTableHeader();
   for (let i = 0; i < opts.lines.length; i++) {
     const line = opts.lines[i];
     const rowHeight = 7;
+    ensureSpace(rowHeight, drawTableHeader);
     if (i % 2 === 1) {
       doc.setFillColor(248, 250, 252);
       doc.rect(marginX, y, contentWidth, rowHeight, "F");
@@ -175,7 +202,8 @@ export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
   }
   y += 8;
 
-  // ── Totaux ──
+  // ── Totaux ── (bloc jamais coupé entre deux pages)
+  ensureSpace(5.5 + 4 + 9);
   const totalsBoxX = pageWidth - marginX - 70;
   doc.setFontSize(9);
   doc.setTextColor(90, 90, 90);
@@ -200,28 +228,34 @@ export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(90, 90, 90);
-  if (opts.extraNote) {
-    doc.text(doc.splitTextToSize(opts.extraNote, contentWidth), marginX, y);
-    y += 10;
-  }
-  if (opts.notes) {
-    doc.text(doc.splitTextToSize(opts.notes, contentWidth), marginX, y);
-    y += 10;
+  for (const note of [opts.extraNote, opts.notes]) {
+    if (!note) continue;
+    const noteLines = doc.splitTextToSize(note, contentWidth) as string[];
+    ensureSpace(noteLines.length * 3.7);
+    doc.text(noteLines, marginX, y);
+    y += Math.max(10, noteLines.length * 3.7 + 6);
   }
 
-  // ── Pied de page / mentions légales ──
-  const footerY = 275;
-  doc.setDrawColor(226, 232, 240);
-  doc.line(marginX, footerY - 6, pageWidth - marginX, footerY - 6);
-  doc.setFontSize(7);
-  doc.setTextColor(140, 140, 140);
-  if (opts.settings?.piedDePage) {
-    doc.text(opts.settings.piedDePage, pageWidth / 2, footerY - 2, { align: "center" });
-  }
+  // ── Pied de page / mentions légales — sur chaque page ──
   const penalites =
     opts.settings?.penalitesRetard ??
     "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera exigée conformément à l'article L.441-6 du Code de commerce, ainsi qu'une indemnité forfaitaire de 40 euros pour frais de recouvrement (art. D.441-5).";
-  doc.text(doc.splitTextToSize(`Règlement à réception. ${penalites}`, contentWidth), marginX, footerY + 3);
+  const pageCount = doc.getNumberOfPages();
+  for (let page = 1; page <= pageCount; page++) {
+    doc.setPage(page);
+    doc.setFont("helvetica", "normal");
+    doc.setDrawColor(226, 232, 240);
+    doc.line(marginX, FOOTER_Y - 6, pageWidth - marginX, FOOTER_Y - 6);
+    doc.setFontSize(7);
+    doc.setTextColor(140, 140, 140);
+    if (opts.settings?.piedDePage) {
+      doc.text(opts.settings.piedDePage, pageWidth / 2, FOOTER_Y - 2, { align: "center" });
+    }
+    doc.text(doc.splitTextToSize(`Règlement à réception. ${penalites}`, contentWidth), marginX, FOOTER_Y + 3);
+    if (pageCount > 1) {
+      doc.text(`${opts.number} — page ${page}/${pageCount}`, pageWidth - marginX, FOOTER_Y - 8, { align: "right" });
+    }
+  }
 
   return Buffer.from(doc.output("arraybuffer"));
 }

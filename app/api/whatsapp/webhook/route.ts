@@ -6,7 +6,7 @@ import { isSubscriptionBlocked } from "@/lib/auth";
 import { normalizePhoneE164 } from "@/lib/phone";
 import { isValidMetaSignature } from "@/lib/whatsapp/verify-signature";
 import { resolveUserByPhone } from "@/lib/whatsapp/identify";
-import { isStopCommand } from "@/lib/whatsapp/artisan-optout";
+import { isStopCommand, isStartCommand } from "@/lib/whatsapp/artisan-optout";
 import { handleClientStopFromUnknownSender } from "@/lib/whatsapp/client-optout";
 import { MetaMessage, MetaWebhookPayload, type MetaMessageT } from "@/lib/whatsapp/meta-types";
 import { processWhatsappJob } from "@/lib/whatsapp/agent";
@@ -187,7 +187,11 @@ async function handleIncomingMessage(message: MetaMessageT, gestlyNumber: string
 
   const isProcessableType = message.type === "text" || message.type === "audio";
 
-  if (conversation.optedOut) {
+  // Conversation désactivée (STOP) : silence total, aucun traitement — sauf
+  // la commande START, seul moyen de réactiver l'assistant depuis WhatsApp
+  // (traitée par l'agent, cf. buildReply dans lib/whatsapp/agent.ts).
+  const isStartRequest = message.type === "text" && isStartCommand(message.text?.body ?? "");
+  if (conversation.optedOut && !isStartRequest) {
     console.info(`[whatsapp/webhook] conversation en opt-out pour l'utilisateur ${user.id} — message persisté sans job`);
     return;
   }

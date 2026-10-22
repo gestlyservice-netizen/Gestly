@@ -4,6 +4,69 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 10 : défauts métier restants et couverture complète de l'agent WhatsApp
+
+Branche : `test/whatsapp-flow`. Aucune API réelle (Meta, OpenAI, Resend, Stripe, OVH), aucune migration, aucune donnée Supabase, aucune clé modifiée, aucun garde-fou désactivé, aucun push.
+
+### Étape 1 — Préservation
+Relecture du diff de la Mission 9 (cohérent), scan anti-secrets négatif, commit `e2a2b2b`.
+
+### Étape 2 — Défauts connus corrigés (preuve : chaque test de régression échoue sur le code d'origine, vérifié en le restaurant temporairement par `git stash`, puis passe)
+
+1. **Reprise après un refus de création** (`lib/whatsapp/conversation-turn.ts`). Un « oui » sur un brouillon complet, après un refus, répondait « il me manque des informations ». Désormais, le récapitulatif est reproposé et la création attend une nouvelle confirmation explicite (jamais de création directe).
+2. **Doublons de numérotation des devis** (`lib/devis/numbering.ts`, nouveau ; `lib/devis/create-devis.ts` ; `app/api/devis/[id]/duplicate/route.ts`). Trois chemins (web, WhatsApp, duplication) calculaient `count + 1` : doublon après toute suppression, et lors de créations simultanées. Désormais, un module unique, utilisé par les trois chemins :
+   - numéro = plus grand numéro existant de l'année + 1 (les numéros non standard sont ignorés) ;
+   - verrou consultatif PostgreSQL par artisan (`pg_advisory_xact_lock(hashtext('gestly:devis-number:<userId>'))`), pris dans la transaction de création, qui sérialise les créations concurrentes. **Aucune migration** ; compatible avec le pooler Supabase en mode transaction. `createDevis` ouvre sa propre transaction lorsqu'il est appelé sans (API web).
+   - ⚠️ Le verrou est vérifié par les tests (pris, dans une transaction, par artisan), mais **pas contre un vrai PostgreSQL concurrent** (base simulée).
+3. **Téléphone donné après le nom** (`lib/whatsapp/pending-devis.ts`). La recherche n'était pas relancée, ce qui créait une fiche en double d'un client existant. Désormais, un téléphone reçu alors que le client n'est pas identifié avec certitude (aucune correspondance ou plusieurs) relance la recherche. Une correspondance unique n'est jamais remise en cause.
+
+### Bugs supplémentaires trouvés par les nouveaux tests, et corrigés
+
+4. **START impossible depuis WhatsApp** (`app/api/whatsapp/webhook/route.ts`). Une fois STOP reçu, le webhook enregistrait tous les messages sans job, START compris : l'assistant ne pouvait plus jamais être réactivé depuis WhatsApp (la route `/api/whatsapp/reactivate` n'est reliée à aucune interface). Désormais, seul START passe quand la conversation est désactivée.
+5. **PDF tronqué au-delà d'environ 20 lignes** (`lib/pdf/generate-document-pdf.ts`). Aucun saut de page : sur 60 lignes, 32 lignes et les totaux étaient dessinés hors de la page A4, donc invisibles pour le client. Désormais, pagination avec en-tête de tableau répété, bloc des totaux et notes jamais coupés, mentions légales et « page n/N » sur chaque page.
+6. **Montants ≥ 1 000 € corrompus dans tous les PDF** (même fichier). Le séparateur des milliers fr-FR de Node (U+202F) n'est pas encodable par les polices standard de jsPDF : toute la chaîne passait en 16 bits (octets nuls, « 1/740,00 »). Remplacé par l'espace insécable U+00A0.
+   - Les fix 5 et 6 concernent aussi les PDF de **factures et d'avoirs** joints aux emails (générateur partagé). Rendu vérifié par analyse du flux PDF ; **pas vérifié visuellement** dans une visionneuse.
+
+### Étape 3 — Couverture ajoutée
+
+| Domaine | Tests |
+|---|---|
+| Vérification GET du webhook Meta | Jeton correct → challenge ; jeton faux, mode inattendu, challenge absent → 403 ; aucun jeton configuré → 403 |
+| Route cron `process-pending` | 401 sans secret, mauvais secret, artisan non administrateur ; traitement et comptage |
+| Reprises après interruption | Job « processing » périmé repris ; job récent jamais doublé ; job en échec repris puis abandonné au plafond (`MAX_ATTEMPTS`) ; extraction interrompue reprise avec un seul appel IA ; extraction concurrente → aucun second appel |
+| PDF réel (jsPDF, données fictives) | Structure PDF valide, contenu (numéro, entreprise, montants), compte neuf sans réglages, 60 lignes paginées sans perte, facture via le générateur commun |
+| STOP / START et opt-out | STOP → silence total → START → reprise ; « stop » dans une phrase ignoré ; route `reactivate` isolée par artisan ; STOP d'un client final → envoi refusé |
+| Plafond IA | Atteint → réponse dédiée, aucun appel, autre artisan non affecté ; mois précédents exclus ; STOP toujours possible |
+| Isolation des routes | Envoi WhatsApp et duplication du devis d'un autre artisan → 404 ; création web avec le client d'un autre artisan → 404 ; cron réservé |
+| Numérotation | 8 tests unitaires + 1 test d'intégration (web, WhatsApp et duplication après suppression → 004, 005, 006) |
+
+### Étape 4 — Résultats
+
+| Vérification | Résultat |
+|---|---|
+| `npm.cmd exec -- tsc --noEmit` | ✅ code 0 |
+| `npm.cmd run lint` | ✅ aucune erreur ni avertissement |
+| `npm.cmd test -- --run` | ✅ **21 fichiers, 270 tests réussis, 0 échec** (+40) |
+| Build isolé | ✅ code 0, 45 pages (copie sans `.env*`, variables factices, jonction retirée) |
+
+### Proposition soumise à autorisation (non appliquée) : garantie définitive d'unicité des numéros de devis
+
+Le verrou consultatif suffit si **tout** le code passe par `lib/devis/numbering.ts`. Pour une garantie au niveau base, contre tout chemin futur ou toute écriture manuelle :
+1. Contrôle préalable en lecture seule : `SELECT "userId", "number", count(*) FROM "Devis" GROUP BY 1, 2 HAVING count(*) > 1;`. Tout doublon existant doit d'abord être renuméroté, avec accord.
+2. Migration `up` : `CREATE UNIQUE INDEX CONCURRENTLY "Devis_userId_number_key" ON "Devis" ("userId", "number");` ; `down` : `DROP INDEX CONCURRENTLY "Devis_userId_number_key";` (fichiers à placer dans `prisma/manual-migrations/`).
+3. Ajouter `@@unique([userId, number])` à `model Devis`, puis `prisma generate`.
+4. Gérer un éventuel `P2002` à la création (renuméroter et retenter une fois).
+
+### Points bloquants restants
+
+- **Aucune intégration externe validée** : Meta (webhook réel, templates, upload, envoi), OpenAI/Whisper, Supabase réel (verrou, transactions et contraintes du pilote `pg`). À faire lors d'une recette réelle contrôlée.
+- **Numérotation des factures et avoirs** (`app/api/factures/route.ts`, `app/api/devis/[id]/to-facture/route.ts`, `app/api/factures/[id]/avoir/route.ts`) : même règle `count + 1`, donc doublons possibles en cas de création simultanée. **Obligation légale** de numérotation unique et continue des factures. Hors mission : à traiter avec le même module.
+- Les réglages « Préfixe devis / Prochain n° » de la page Paramètres ne sont utilisés par aucune numérotation (devis, factures, avoirs).
+- En simulation locale, l'IA est désactivée : un vrai message WhatsApp n'obtient aucune réponse. Une recette locale demandera une décision de l'utilisateur.
+- PDF : rendu visuel non contrôlé à l'œil.
+
+---
+
 ## 2026-10-22 — Mission 9 : validation du parcours WhatsApp → devis → envoi simulé
 
 Branche : `test/whatsapp-flow`, créée depuis `chore/claude-setup` @ `2ecdda4`. Aucune API Meta ou OpenAI, aucun envoi réel, aucune migration, aucune donnée Supabase, `npm run dev` non lancé.

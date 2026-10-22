@@ -1,17 +1,17 @@
 import type { Prisma, PrismaClient, Devis, DevisLine } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { nextDevisNumber } from "@/lib/devis/numbering";
 
-// Logique métier extraite de app/api/devis/route.ts (POST) à l'identique —
-// même algorithme de numérotation, même calcul des totaux, même défauts.
-// Comportement inchangé pour l'API web ; réutilisé tel quel par la création
-// de devis depuis WhatsApp (lib/whatsapp/confirm-creation.ts).
+// Logique métier extraite de app/api/devis/route.ts (POST) — même calcul
+// des totaux, mêmes défauts. Partagée par l'API web et la création de devis
+// depuis WhatsApp (lib/whatsapp/confirm-creation.ts). Numérotation
+// centralisée dans lib/devis/numbering.ts (aussi utilisée par la duplication).
 //
 // Accepte un client de transaction Prisma optionnel (tx) pour permettre à
 // l'appelant d'englober cette création dans une transaction plus large
 // (ex. création du client + devis + mise à jour de la conversation en une
-// seule opération atomique côté WhatsApp). Sans tx, se comporte exactement
-// comme avant (écriture Devis+lignes déjà atomique via l'écriture imbriquée
-// Prisma standard).
+// seule opération atomique côté WhatsApp). Sans tx, ouvre sa propre
+// transaction : la numérotation (lib/devis/numbering.ts) en a besoin.
 export interface CreateDevisLineInput {
   description: string;
   quantity: number;
@@ -44,17 +44,24 @@ export async function createDevis(
   if (!input.clientId) throw new CreateDevisError("Client requis", "NO_CLIENT");
   if (!input.lines?.length) throw new CreateDevisError("Au moins une ligne requise", "NO_LINES");
 
+  // La numérotation exige une transaction (verrou consultatif, cf.
+  // lib/devis/numbering.ts). Appelé sans transaction (API web), on en
+  // ouvre une ; appelé avec celle de l'appelant (WhatsApp), on la réutilise.
+  if ("$transaction" in tx) {
+    return tx.$transaction((t) => createDevisInTransaction(input, t));
+  }
+  return createDevisInTransaction(input, tx);
+}
+
+async function createDevisInTransaction(
+  input: CreateDevisInput,
+  tx: Prisma.TransactionClient
+): Promise<DevisWithLines> {
   const client = await tx.client.findFirst({ where: { id: input.clientId, userId: input.userId } });
   if (!client) throw new CreateDevisError("Client introuvable", "CLIENT_NOT_FOUND");
 
-  // Numéro de devis : DEV-2026-001. Calculé à l'intérieur de la transaction
-  // fournie par l'appelant quand il y en a une, pour rester cohérent avec le
-  // reste de l'opération atomique côté WhatsApp.
-  const year = new Date().getFullYear();
-  const count = await tx.devis.count({
-    where: { userId: input.userId, number: { startsWith: `DEV-${year}-` } },
-  });
-  const number = `DEV-${year}-${String(count + 1).padStart(3, "0")}`;
+  // Numéro de devis : DEV-2026-001, attribué sous verrou par artisan.
+  const number = await nextDevisNumber(tx, input.userId);
 
   const computedLines = input.lines.map((l) => ({
     description: l.description,
