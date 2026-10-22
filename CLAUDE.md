@@ -59,6 +59,21 @@ SaaS de gestion pour artisans et indépendants : clients, devis, factures, avoir
 
 ## Garde-fous Claude Code (`.claude/`)
 
+> **Version 2 préparée (2026-10-22), installée par l'utilisateur** avec `scripts/claude-config/install.ps1`. Tant que `scripts/claude-config/` existe, c'est la v1 décrite plus bas qui est active.
+>
+> **Autonomie de développement (décision de l'utilisateur, 2026-10-22).** Sans confirmation :
+> - fichiers du projet, dépendances, Node, TypeScript, lint, tests, builds, `npm run dev` (envois en simulation) ;
+> - branches et commits locaux, schéma Prisma, migrations **préparées**, `prisma migrate diff` ;
+> - lectures SQL sur Supabase ;
+> - PostgreSQL **local** (`psql`/`pg_restore`/`createdb` vers `localhost`, `initdb`, `pg_ctl`) ;
+> - sauvegardes (`pg_dump`, `scripts/db/backup.ps1`, `verify-backup.ps1`).
+>
+> Le hook v2 rend trois décisions : autoriser, **demander l'accord** (`permissionDecision: "ask"`) ou bloquer.
+> - **Accord demandé** : SQL d'écriture ou de structure via le connecteur Supabase ; `psql`/`pg_restore`/`dropdb` vers une base distante (dont l'application des migrations) ; `git reset --hard`, `git clean -f`, `git checkout -- .`, `git branch -D`, `git stash drop` ; suppression récursive hors du projet et des dossiers temporaires.
+> - **Bloqué (réservé à l'utilisateur)** : secrets (`.env*`, variables d'environnement, `gh secret`) ; `prisma db push`/`migrate dev|deploy|reset|resolve`/`db execute|pull|seed` ; Supabase CLI `db push|reset` ; outils d'infrastructure Supabase ; Vercel ; `git push`, publication GitHub ou npm ; `OUTBOUND_MODE=live`, `VERCEL_ENV=production` ; appels directs aux API réelles (Meta, Resend, Stripe, OVH, OpenAI, AI Gateway) et aux routes de `gestly.fr` ; Stripe CLI sauf `stripe listen` ; suppression ou modification des sauvegardes (`gestly-backups`) ; modification des garde-fous.
+>
+> Les scripts du dépôt (`backup.ps1`) peuvent lire `DATABASE_URL` pour l'utilisateur sans jamais l'afficher. Claude ne lit toujours aucun `.env*`.
+
 - `.claude/settings.json` (versionné) : règles `deny` (lecture et écriture des `.env*`, `git push`, `vercel`, `prisma db push|migrate|db execute`, `supabase db push|reset`, `psql`, `printenv`, outils Supabase d'infrastructure), règle `ask` (`execute_sql` Supabase), et un hook `PreToolUse`.
 - `.claude/hooks/guard.mjs` : analyse chaque commande Bash/PowerShell, chaque accès fichier et chaque appel au connecteur Supabase. Il bloque : secrets (`.env*` sauf `.env.example`, `printenv`, remote Git de l'ancien PC) ; `db push`, `migrate dev|deploy|reset|resolve`, `db execute|pull|seed`, `--accept-data-loss`, `psql` ; `vercel` sous toutes ses formes (`npx`, `pnpm dlx`…) ; `git push` (y compris `git -C . push`, `bash -c "…"`, commandes chaînées) et `gh pr create` ; `OUTBOUND_MODE=live` et `VERCEL_ENV=production` ; le SQL destructif via Supabase ; la modification des garde-fous eux-mêmes. En cas d'erreur interne, il bloque (échec fermé). Tests : `tests/claude-guard.test.ts`.
 - **Limites (ne pas surestimer)** : analyse textuelle uniquement. Le hook ne voit pas le contenu d'un script écrit puis exécuté (ex. un `.mjs` qui lance `prisma db push`), ni une commande obfusquée (base64, variables concaténées), ni les actions de l'utilisateur hors de Claude Code. Il peut aussi produire des faux positifs : une commande qui mentionne `.claude/settings` avec `sed`, ou un `grep` sur `^\.env`. **Il ne remplace pas les protections applicatives** (`lib/outbound/mode.ts`), l'absence de secrets de production sur le poste, ni les droits restreints côté Supabase et Vercel. Les garde-fous ne peuvent être modifiés que par l'utilisateur.

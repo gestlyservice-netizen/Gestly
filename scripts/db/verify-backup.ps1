@@ -51,8 +51,15 @@ try {
   # 2. Serveur temporaire et restauration.
   & $initdb -D $data -U postgres -A trust -E UTF8 --no-locale | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "initdb a échoué." }
-  & $pgCtl -D $data -o "-p $port -c listen_addresses=localhost" -l (Join-Path $data "server.log") -w start | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "Démarrage du serveur temporaire impossible (port $port occupé ?)." }
+  # Sous Windows, le serveur lancé par pg_ctl hérite des canaux de sortie : un
+  # « | Out-Null » attendrait son arrêt indéfiniment. On attend pg_ctl seul,
+  # sortie redirigée vers un fichier.
+  $pgCtlOut = "$data-pg_ctl.txt"
+  $proc = Start-Process -FilePath $pgCtl -NoNewWindow -PassThru -RedirectStandardOutput $pgCtlOut `
+    -ArgumentList "-D `"$data`" -o `"-p $port -c listen_addresses=localhost`" -l `"$data\server.log`" -w -t 60 start"
+  $null = $proc.Handle
+  $proc.WaitForExit()
+  if ($proc.ExitCode -ne 0) { throw "Démarrage du serveur temporaire impossible (port $port occupé ? voir $data\server.log)." }
   & $createdb -h localhost -p $port -U postgres gestly_restore
   # La sauvegarde recrée le schéma public : on retire celui, vide, de la base neuve.
   & $psql -X -q -v ON_ERROR_STOP=1 -d $local -c "DROP SCHEMA public CASCADE;"
@@ -101,7 +108,7 @@ ORDER BY 1;
 finally {
   if (Test-Path $data) {
     & $pgCtl -D $data -m fast -w stop 2>$null | Out-Null
-    if (-not $Keep) { Remove-Item -Recurse -Force $data }
+    if (-not $Keep) { Remove-Item -Recurse -Force $data; Remove-Item -Force "$data-pg_ctl.txt" -ErrorAction SilentlyContinue }
   }
 }
 $results | ForEach-Object { Write-Host $_ }

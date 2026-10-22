@@ -4,6 +4,54 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 16 : autonomie de développement et sauvegarde vérifiée de Supabase (terminée)
+
+Aucune migration appliquée sur Supabase, aucune écriture distante, aucun push, aucun déploiement.
+
+### Configuration Claude Code v2 (préparée, À INSTALLER par l'utilisateur)
+- **Configuration examinée** :
+  - `.claude/settings.json` : 47 règles `deny`, `execute_sql` en `ask` ;
+  - `settings.local.json` : `execute_sql` autorisé ;
+  - hook `guard.mjs` à deux issues seulement (autoriser ou bloquer).
+- **Blocages injustifiés constatés** : `psql` vers un PostgreSQL local ; `prisma migrate diff` (hors ligne) ; tout SQL contenant `create`, même dans une chaîne ; toute commande mentionnant `.claude/settings` avec un `2>/dev/null` ; le mot « vercel » placé après un espace dans un texte.
+- **Installation par l'utilisateur** : Claude ne peut pas modifier ses garde-fous (règle `deny` + hook), et ne l'a pas contourné. Proposition dans `scripts/claude-config/` :
+  - `settings.json` : `allow` pour les outils fichiers, Bash, PowerShell et les outils Supabase en lecture ; `deny` conservés, sauf `psql` et `prisma migrate:*`, remplacés par les sous-commandes dangereuses ;
+  - `guard.mjs` v2 : 3 décisions, autoriser, **demander l'accord** (`permissionDecision: "ask"`) ou bloquer ;
+  - `guard.proposal.test.ts` : 133 tests ;
+  - `install.ps1` : diff, confirmation, copie, adaptation du test, suppression de la proposition, tests.
+  Règles détaillées dans CLAUDE.md.
+- **Preuves** :
+  - 133 tests de la v2 réussis ;
+  - protocole réel du hook testé par stdin : autoriser (code 0, sortie vide), accord (JSON `ask`), refus (code 2), échec fermé sur une entrée invalide ;
+  - `tsc` 0, lint propre, **23 fichiers / 465 tests**.
+
+### Sauvegarde Supabase (faite et prouvée)
+- `backup.ps1 -CheckOnly` : connexion OK. `DATABASE_URL` de la configuration locale pointe vers le **pooler Supabase en mode session (5432)**. PostgreSQL 17.6, 22 tables.
+- **Deux bugs corrigés dans `backup.ps1`** :
+  - la vérification « hors du dépôt » se déclenchait à tort : `gestly-backups` commence par `Gestly` sans tenir compte de la casse ;
+  - `--file=(Join-Path …)` était transmis en deux arguments, et `pg_dump` prenait le chemin pour un nom de base.
+- **Un bug corrigé dans `verify-backup.ps1`** : `pg_ctl start | Out-Null` attendait indéfiniment, car le serveur hérite du canal de sortie sous Windows. Démarrage désormais par `Start-Process`, avec attente de `pg_ctl` seul. La première tentative a été arrêtée, ainsi que son serveur temporaire ; le service PostgreSQL de Windows n'a pas été touché.
+- **Sauvegarde `%USERPROFILE%\gestly-backups\20261022-220318`** (10 fichiers, 132 Ko) : `public.dump`, `supabase_migrations.dump`, `public-schema.sql`, comptages, instantané, empreintes SHA-256. Données des 22 tables présentes.
+- **`verify-backup.ps1 -Rehearse` → `SAUVEGARDE RESTAURABLE`**, preuve dans `RESTORE-VERIFIED.txt` (2026-10-22T22:14:34) :
+  - empreintes vérifiées ;
+  - restauration sans erreur sur un PostgreSQL 17.11 local temporaire ;
+  - nombre de lignes identique pour les 22 tables ;
+  - structure identique : colonnes, index, contraintes, règles ON DELETE.
+- **Répétition sur la copie des vraies données** :
+  - précontrôle : 0 doublon (8 devis, 5 factures, 0 avoir), 5 contraintes en `c`/`c`, objets absents ;
+  - migrations 1 → 4 appliquées ;
+  - postcheck OK : 9 lignes figées, données intactes ;
+  - T1 à T10 OK ;
+  - **0 écart avec `schema.prisma`**.
+  Serveur temporaire arrêté et supprimé, port 54329 libre.
+- Un dossier vide `20261022-220306`, issu de la tentative interrompue, est laissé en place (suppression réservée à l'utilisateur).
+
+### Prochaines actions
+1. Utilisateur : installer la configuration v2 (`scripts/claude-config/install.ps1`), puis redémarrer Claude Code.
+2. Sur autorisation : phase B du plan (migrations sur Supabase). Avec la v2, `psql` vers Supabase demandera l'accord au lieu d'être bloqué.
+
+---
+
 ## 2026-10-22 — Mission 15 : connexion pour la sauvegarde (terminée, sauvegarde NON lancée)
 
 Aucune lecture de `.env*` par Claude (règle 2 et garde-fou), aucune donnée modifiée, aucune migration, aucune variable d'environnement modifiée.

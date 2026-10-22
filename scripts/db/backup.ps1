@@ -66,7 +66,7 @@ try {
   if ($CheckOnly) { Write-Host "Contrôle seul (-CheckOnly) : aucune sauvegarde effectuée."; return }
 
   $dir = Join-Path $OutRoot (Get-Date -Format "yyyyMMdd-HHmmss")
-  if ($dir.StartsWith($repo.Path, [StringComparison]::OrdinalIgnoreCase)) { throw "Le dossier de sauvegarde doit être hors du dépôt." }
+  if (($dir + "\").StartsWith($repo.Path.TrimEnd("\") + "\", [StringComparison]::OrdinalIgnoreCase)) { throw "Le dossier de sauvegarde doit être hors du dépôt." }
   New-Item -ItemType Directory -Force $dir | Out-Null
   Write-Host "Sauvegarde dans $dir"
 
@@ -77,11 +77,11 @@ WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
 ORDER BY 1;
 "@
 
-  & $pgDump --format=custom --schema=public --no-owner --no-privileges --file=(Join-Path $dir "public.dump")
+  & $pgDump --format=custom --schema=public --no-owner --no-privileges --file "$dir\public.dump"
   if ($LASTEXITCODE -ne 0) { throw "pg_dump (public) a échoué." }
-  & $pgDump --format=custom --schema=supabase_migrations --no-owner --no-privileges --file=(Join-Path $dir "supabase_migrations.dump")
+  & $pgDump --format=custom --schema=supabase_migrations --no-owner --no-privileges --file "$dir\supabase_migrations.dump"
   if ($LASTEXITCODE -ne 0) { throw "pg_dump (supabase_migrations) a échoué." }
-  & $pgDump --schema-only --schema=public --no-owner --no-privileges --file=(Join-Path $dir "public-schema.sql")
+  & $pgDump --schema-only --schema=public --no-owner --no-privileges --file "$dir\public-schema.sql"
   if ($LASTEXITCODE -ne 0) { throw "pg_dump (structure) a échoué." }
   & $psql -X -A -t -v ON_ERROR_STOP=1 -c $countsSql -o (Join-Path $dir "counts-source.txt")
   if ($LASTEXITCODE -ne 0) { throw "Comptage des lignes a échoué." }

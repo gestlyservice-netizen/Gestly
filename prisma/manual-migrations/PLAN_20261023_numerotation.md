@@ -51,6 +51,8 @@ Le projet Supabase est en **offre gratuite** (vérifié le 2026-10-22) : aucune 
 
 **Arrêt** si A3, A4 ou A5 échoue.
 
+État au 2026-10-22 : **A1 à A4 faites.** La sauvegarde `%USERPROFILE%\gestly-backups\20261022-220318` est prouvée restaurable (`RESTORE-VERIFIED.txt`). La répétition sur la copie des vraies données est réussie : 0 doublon, migrations 1 → 4, postcheck, T1 à T10, 0 écart. A5 est à refaire juste avant B.
+
 ### Phase B — Migrations sur Supabase (autorisation écrite requise)
 
 | Étape | Action | Preuve |
