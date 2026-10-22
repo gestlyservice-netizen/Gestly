@@ -9,12 +9,17 @@
 | 🔴 **Absent / à faire** | Pas de code correspondant dans le dépôt. |
 | ⚠️ **Risque** | Point identifié nécessitant une décision ou une correction. |
 
-Base de vérification au 2026-10-22 (branche `chore/claude-setup`, commit de base `7128471`) :
-- `npx tsc --noEmit` → code de sortie 0
-- `npx next lint` → « No ESLint warnings or errors »
-- Tests automatisés : **aucun** (aucun framework installé)
+Base de vérification au 2026-10-22 :
+- Sur `7128471` (avant intégration de l'agent WhatsApp) : `npx tsc --noEmit` → code de sortie 0 ; `npx next lint` → « No ESLint warnings or errors ».
+- Après le merge `dbd67c6`, `npm.cmd ci` (client Prisma régénéré localement avec les 22 modèles), puis :
+  - `npm.cmd exec -- tsc --noEmit` → code de sortie 0
+  - `npm.cmd run lint` → « ✔ No ESLint warnings or errors »
+  - `npm.cmd test -- --run` → **13 fichiers, 85 tests réussis, 0 échec** (entièrement simulés : Prisma, envois et modèles IA mockés)
+- `npm run build` : **non exécuté**.
 
-**Aucune fonctionnalité n'est à l'état 🟢 Vérifié à ce jour.**
+Ces tests sont **unitaires et simulés**. Ils prouvent la logique interne de l'agent WhatsApp, pas son fonctionnement réel avec Meta, OpenAI ou la base. Une ligne n'est donc marquée 🟢 que pour sa **logique unitaire testée**. Aucune fonctionnalité n'est déclarée **opérationnelle de bout en bout** à ce jour.
+
+Légende complémentaire : 🧪 **Logique testée** — tests unitaires simulés qui passent ; intégration réelle non vérifiée.
 
 ## Fonctionnalités V1
 
@@ -42,23 +47,62 @@ Base de vérification au 2026-10-22 (branche `chore/claude-setup`, commit de bas
 | 20 | Abonnement Stripe (checkout, portail, webhook, resync cron) | 🟡 | `app/api/stripe/`, `lib/stripe.ts`, `lib/stripe-sync.ts`, `app/dashboard/parametres/abonnement` |
 | 21 | Landing, SEO, pages légales | 🟡 | `app/page.tsx`, `components/landing/`, `app/(cgu|cgv|privacy|mentions-legales|remboursement|contact)`, `app/robots.ts` |
 | 22 | Monitoring Sentry | 🟡 | `sentry.*.config.ts`, `instrumentation.ts` |
-| 23 | Agent IA WhatsApp conversationnel (réception de messages + réponses IA) | 🔴 | Aucune trace dans le dépôt ni l'historique — voir `PROGRESS.md` |
+| 23 | Agent IA WhatsApp conversationnel, intégré depuis la branche `feature/whatsapp-agent-v1` (merge `dbd67c6`) | 🟡 | Voir le détail ci-dessous |
+
+### Agent IA WhatsApp — détail
+
+Origine : code retrouvé le 2026-10-22 dans la copie de l'ancien PC, sur une branche locale jamais poussée (14 commits, `5cdbf61` → `9ce9f76`), puis fusionné (`dbd67c6`). Typage et lint OK sur l'ensemble.
+
+**Aucune sous-fonctionnalité n'est vérifiée de bout en bout** (Meta, OpenAI, base réelle).
+
+| Sous-fonctionnalité | État | Fichiers | Tests (résultat 2026-10-22) |
+|---|---|---|---|
+| Webhook Meta entrant (vérification GET, signature `x-hub-signature-256`) | 🟡 | `app/api/whatsapp/webhook/route.ts`, `lib/whatsapp/verify-signature.ts`, `meta-types.ts`, `graph-config.ts` | **Aucun test** |
+| Traitement asynchrone (`waitUntil` + file de jobs + cron toutes les 15 min) | 🟡 | `app/api/whatsapp/webhook/route.ts`, `lib/whatsapp/job-queue.ts`, `app/api/whatsapp/process-pending/route.ts`, `vercel.json` | **Aucun test** |
+| Orchestrateur conversationnel | 🧪 | `lib/whatsapp/agent.ts`, `conversation-turn.ts`, `reply-builder.ts`, `identify.ts` | `agent.test.ts` 12/12 (`conversation-turn` est mocké dans ce test et n'a pas de test propre) |
+| Extraction IA structurée (`pendingDevis`) | 🧪 | `lib/whatsapp/extraction.ts`, `pending-devis.ts` | `extraction.test.ts` 5/5, `pending-devis.test.ts` 4/4 |
+| Idempotence de l'extraction sur retry (checkpoint) | 🧪 | `lib/whatsapp/extraction-checkpoint.ts` | `extraction-checkpoint.test.ts` 7/7, `extraction-checkpoint-quota.e2e.test.ts` 2/2 |
+| Résolution client et création réelle du devis | 🟡 | `lib/whatsapp/client-resolution.ts`, `confirm-creation.ts`, `lib/devis/create-devis.ts`, `lib/clients/create-client.ts` | **Aucun test** |
+| PDF et envoi du devis au client (verrou d'envoi unique) | 🧪 | `lib/whatsapp/send-devis.ts`, `send-claim.ts`, `send.ts`, `lib/pdf/generate-document-pdf.ts` | `send-devis.test.ts` 3/3 (`send-claim`, `send`, PDF et `media` mockés, sans test propre) |
+| Messages vocaux (transcription Whisper + garde-fou anti-hallucination) | 🧪 | `lib/whatsapp/transcription.ts`, `voice-message.ts`, `media.ts` | `transcription.test.ts` 5/5, `voice-message.test.ts` 16/16 (`media` non testé) |
+| Garde-fous : STOP/START artisan, opt-out client, escalade | 🧪 | `lib/whatsapp/artisan-optout.ts`, `client-optout.ts`, `escalation.ts`, `app/api/whatsapp/reactivate/route.ts` | `artisan-optout.test.ts` 7/7, `client-optout.test.ts` 8/8, `escalation.test.ts` 3/3 (route `reactivate` non testée) |
+| Plafond mensuel d'usage IA | 🧪 | `lib/ai/usage.ts`, `lib/ai/config.ts` | `lib/ai/usage.test.ts` 9/9 |
+| Notifications dédupliquées (`createNotificationOnce`) | 🧪 | `lib/notifications.ts` | `lib/notifications.test.ts` 4/4 (contrainte d'unicité simulée, pas l'index Postgres réel) |
+| Schéma de données (7 nouveaux modèles, champs `whatsappOptOut`, `signature*`) | 🟡 ⚠️ | `prisma/schema.prisma`, `prisma/manual-migrations/` (9 paires up/down) | Client Prisma généré localement ; **état de la base réelle inconnu** |
 
 ## Socle de développement autonome
 
 | Élément | État |
 |---|---|
-| `CLAUDE.md`, `ROADMAP.md`, `PROGRESS.md` | 🟡 Créés le 2026-10-22 (branche `chore/claude-setup`, non commités) |
-| Environnement de dev isolé (base, Stripe test, SMS/WhatsApp/email factices) | 🔴 Non confirmé |
-| `.env.example` (noms de variables uniquement) | 🔴 |
-| Migrations Prisma versionnées (`prisma/migrations`) | 🔴 ⚠️ Schéma sans historique de migrations |
-| Framework de tests (Vitest, puis Playwright) | 🔴 |
-| Scripts npm `typecheck` / `test` / `check` | 🔴 |
+| `CLAUDE.md`, `ROADMAP.md`, `PROGRESS.md` | 🟡 Commités le 2026-10-22 (`19745bc`), mis à jour depuis, non poussés. `CLAUDE.md` décrit désormais l'agent WhatsApp et Vitest |
+| Environnement de dev isolé (base, Stripe test, SMS/WhatsApp/email factices) | 🔴 Non confirmé. Architecture proposée dans `CLAUDE.md` (section « Environnement de développement isolé ») et `PROGRESS.md` (Mission 5) |
+| `.env.example` (noms de variables uniquement) | 🟡 Créé le 2026-10-22 : 33 variables, valeurs fictives, services sensibles vides par défaut |
+| Garde-fous de code pour le dev (SMS/email simulés, URL WhatsApp configurable partout, `APP_URL` localhost, SSL Postgres configurable) | 🔴 Nécessite des modifications de code soumises à accord |
+| Migrations Prisma versionnées (`prisma/migrations`) | 🔴 ⚠️ Pas de `prisma/migrations` ; seulement des scripts SQL manuels dans `prisma/manual-migrations/` (agent WhatsApp) |
+| Framework de tests | 🟢 Vitest 2.1.9 installé, 13 fichiers / 85 tests réussis (2026-10-22). Couverture limitée à l'agent WhatsApp, à `lib/ai/usage` et à `lib/notifications` ; le reste de l'application (devis, factures, relances, Stripe…) n'a **aucun test**. Playwright : 🔴 |
+| Scripts npm `typecheck` / `test` / `check` | 🟡 `test` (`vitest run`) présent ; `typecheck` et `check` : 🔴 |
 | CI GitHub Actions (lint, typecheck, tests, build) | 🔴 |
 | `.claude/` versionné (settings, hooks, sous-agents) | 🔴 ⚠️ `.claude/` est actuellement ignoré par `.gitignore` |
+
+## Prochaines étapes (ordre recommandé)
+
+1. **Environnement isolé** : base PostgreSQL de dev (recommandation : projet Supabase dédié), instance Clerk de dev, Stripe en mode test. Prérequis à tout test en exécution.
+2. Mettre de côté le `.env.local` actuel (hors du dépôt) et créer `.env.local` + `.env` à partir de `.env.example` avec des valeurs de dev uniquement (action utilisateur).
+3. Initialiser le schéma de la base de dev (`prisma db push` **sur la base de dev uniquement**, après accord explicite).
+4. `.claude/settings.json` versionné : interdictions (`prisma db push|migrate`, `vercel`, `git push`, lecture `.env*`) + hooks de vérification ; corriger `.gitignore` (`.claude/` → `.claude/settings.local.json`).
+5. Garde-fous de code (avec accord) : fournisseur SMS et email « console » en dev, URL Meta configurable dans la route devis/whatsapp, `APP_URL` localhost en dev, SSL Postgres configurable.
+6. Sécurité des dépendances (correctifs semver, `shadcn` en dev), puis migration Next 15.5.
+7. CI GitHub Actions : lint, typecheck, tests, build isolé.
+8. Tests manquants : webhook, `job-queue`, `confirm-creation`, `createDevis`, `createClient`, puis le reste de l'application.
 
 ## Risques identifiés (non corrigés)
 
 - ⚠️ Un fichier `.env` a été commité dans `2e81a89` puis retiré dans `dd10b13` : il reste dans l'historique Git. Contenu **non inspecté** (par règle de non-lecture des secrets). À vérifier par l'utilisateur ; rotation des clés recommandée si des valeurs réelles s'y trouvaient.
 - ⚠️ `lib/rate-limit.ts` est en mémoire : sur Vercel (instances serverless multiples), la limite n'est pas globale.
 - ⚠️ Pas d'environnement de dev isolé confirmé : risque d'écriture en production lors d'essais locaux.
+- ⚠️ `lib/url.ts` remplace `localhost` par `https://www.gestly.fr` : les liens générés en dev pointent vers la production.
+- ⚠️ `app/api/devis/[id]/whatsapp/route.ts` appelle `graph.facebook.com` en dur (non simulable par `WHATSAPP_GRAPH_API_BASE_URL`).
+- ⚠️ OVH SMS n'a pas de mode test ; Resend n'a pas de mode « console » dans le code.
+- ⚠️ Le commit `5cdbf61` affirme que la migration de l'agent WhatsApp a été « appliquée sur Supabase ». **Non vérifié** : avant tout déploiement, il faut comparer le schéma réel de la base à `prisma/schema.prisma` (lecture seule) et ne pas rejouer les scripts SQL à l'aveugle.
+- ⚠️ La copie de l'ancien PC contient un token GitHub en clair dans l'URL de son remote `origin` : à révoquer.
+- ⚠️ `npm ci` signale 48 vulnérabilités (2 faibles, 15 modérées, 27 élevées, 4 critiques), dont `next` 14.2.35. Non analysées en détail.
