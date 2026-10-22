@@ -21,6 +21,8 @@ const isPublicRoute = createRouteMatcher([
   "/api/admin/ovh-balance/check",
   "/api/relances/check",
   "/api/public(.*)",
+  "/api/whatsapp/webhook",
+  "/api/whatsapp/process-pending",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

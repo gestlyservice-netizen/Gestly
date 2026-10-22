@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { createClient } from "@/lib/clients/create-client";
 
 export async function GET() {
   try {
@@ -60,25 +61,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const validChannels = ["whatsapp", "email", "telephone"];
-    const data = {
+    console.info("[POST /api/clients] Creating client for user", user.id, { name: name.trim() });
+
+    const client = await createClient({
       userId: user.id,
-      name: name.trim(),
-      email: typeof email === "string" && email.trim() ? email.trim() : null,
-      phone: typeof phone === "string" && phone.trim() ? phone.trim() : null,
-      address:
-        typeof address === "string" && address.trim() ? address.trim() : null,
-      preferredContact:
-        typeof preferredContact === "string" && validChannels.includes(preferredContact)
-          ? preferredContact
-          : "email",
-    };
-
-    console.info("[POST /api/clients] Creating client for user", user.id, {
-      name: data.name,
+      name,
+      email: typeof email === "string" ? email : null,
+      phone: typeof phone === "string" ? phone : null,
+      address: typeof address === "string" ? address : null,
+      preferredContact: typeof preferredContact === "string" ? preferredContact : null,
     });
-
-    const client = await prisma.client.create({ data });
 
     return NextResponse.json(client, { status: 201 });
   } catch (err) {

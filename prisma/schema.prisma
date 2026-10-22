@@ -27,15 +27,18 @@ model User {
   plan                    String    @default("starter")
   createdAt            DateTime  @default(now())
 
-  clients         Client[]
-  devis           Devis[]
-  factures        Facture[]
-  avoirs          Avoir[]
-  settings        Settings?
-  relanceSettings RelanceSettings?
-  events          Event[]
-  notifications   Notification[]
-  opportunities   Opportunity[]
+  clients               Client[]
+  devis                 Devis[]
+  factures              Facture[]
+  avoirs                Avoir[]
+  settings              Settings?
+  relanceSettings       RelanceSettings?
+  relanceDevisSettings  RelanceDevisSettings?
+  events                Event[]
+  notifications         Notification[]
+  opportunities         Opportunity[]
+  whatsappConversations WhatsappConversation[]
+  aiUsageEvents         AiUsageEvent[]
 }
 
 model Client {
@@ -46,6 +49,10 @@ model Client {
   phone            String?
   address          String?
   preferredContact String   @default("email")
+  // Opposition explicite du client final à recevoir des messages WhatsApp de
+  // la part de cet artisan via Gestly (mot-clé STOP reçu sur ce numéro).
+  // Distinct de l'opt-out de l'artisan sur le bot (WhatsappConversation.optedOut).
+  whatsappOptOut   Boolean  @default(false)
   createdAt        DateTime @default(now())
 
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -77,10 +84,20 @@ model Devis {
   linkExpiresAt DateTime?
   linkRevoked   Boolean   @default(false)
 
-  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  client   Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  lines    DevisLine[]
-  factures Facture[]
+  // Signature électronique simple (client, via le lien public) : consentement
+  // explicite + preuve. Distinct du changement de statut manuel par l'artisan
+  // (qui reste possible pour les cas signés hors-ligne, sans ces champs).
+  signatureName      String?
+  signatureIp        String?
+  signatureUserAgent String?
+  signatureHash      String?
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client       Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lines        DevisLine[]
+  factures     Facture[]
+  relances     RelanceDevis[]
+  whatsappSend WhatsappSend?
 }
 
 model DevisLine {
@@ -245,6 +262,44 @@ model Relance {
   @@unique([factureId, niveau, canal])
 }
 
+// ── Relances commerciales sur devis sans réponse ────────────
+// Moteur, paramètres et historique volontairement distincts des relances
+// factures ci-dessus (cahier des charges initial : les deux doivent rester
+// séparés même s'ils partagent le même cron). Un devis quitte la cible du
+// moteur dès que son statut n'est plus "envoye" (signé, refusé, facturé,
+// repassé en brouillon) ou que son lien a expiré/été révoqué.
+model RelanceDevisSettings {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  enabled    Boolean  @default(false)
+  delaiJ1    Int      @default(3)
+  delaiJ2    Int      @default(7)
+  delaiJ3    Int      @default(14)
+  canalEmail Boolean  @default(true)
+  canalSms   Boolean  @default(false)
+  messageJ1  String?
+  messageJ2  String?
+  messageJ3  String?
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RelanceDevis {
+  id        String   @id @default(cuid())
+  devisId   String
+  niveau    Int
+  canal     String // "email" | "sms"
+  statut    String // "envoyee" | "echec"
+  erreur    String?
+  attempts  Int      @default(1)
+  envoyeeAt DateTime @default(now())
+
+  devis Devis @relation(fields: [devisId], references: [id], onDelete: Cascade)
+
+  @@unique([devisId, niveau, canal])
+}
+
 // ── Agenda ───────────────────────────────────────────────────
 model Event {
   id                    String    @id @default(cuid())
@@ -274,6 +329,20 @@ model Notification {
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
+  // Étape 8bis — unicité anti-doublon EN CONCURRENCE pour createNotificationOnce
+  // (lib/notifications.ts), garantie au niveau base de données plutôt que par
+  // la seule convention applicative (findFirst puis create n'est pas atomique
+  // et pouvait produire un doublon sous course concurrente). Renseigné
+  // UNIQUEMENT par createNotificationOnce (= `${type}:${link}`), toujours
+  // null pour createNotification — notamment les notifications "relance_*"
+  // (lib/relances/engine.ts), qui réutilisent légitimement le même (userId,
+  // type, link) à chaque niveau de relance et ne doivent JAMAIS être
+  // contraintes par cette unicité. L'index unique réel est un index PARTIEL
+  // (WHERE "dedupeKey" IS NOT NULL) créé en SQL brut — non représentable par
+  // @@unique dans ce schéma Prisma — cf.
+  // prisma/manual-migrations/20260915_step8bis_notification_dedupe_up.sql.
+  dedupeKey String?
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
@@ -299,4 +368,188 @@ model Opportunity {
   client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
   @@index([userId, stage])
+}
+
+// ── Agent IA WhatsApp ────────────────────────────────────────
+// V1 : un seul numéro Gestly partagé entre artisans. userId reste nullable
+// tant que l'expéditeur n'a pas été identifié (numéro inconnu) — la
+// conversation n'est jamais utilisée pour agir tant que userId est vide.
+// Architecture pensée pour supporter plus tard des numéros dédiés par
+// artisan sans changer ce modèle (il suffira d'ajouter la résolution du
+// canal par phone_number_id Meta en amont, cf. lib/whatsapp/channel.ts).
+model WhatsappConversation {
+  id            String    @id @default(cuid())
+  userId        String?
+  phoneNumber   String // numéro E.164 de l'expéditeur (l'artisan)
+  // idle | collecting | awaiting_creation_confirmation | creating |
+  // awaiting_send_confirmation | sending | opted_out
+  // "creating" et "sending" sont des états transitoires réclamés
+  // atomiquement (cf. lib/whatsapp/confirm-creation.ts et
+  // lib/whatsapp/send-devis.ts) pour garantir qu'une confirmation ne
+  // produit jamais deux créations/envois, même en cas de concurrence ou de
+  // retry.
+  state           String    @default("idle")
+  pendingDevis    Json? // brouillon structuré en cours de collecte/validation
+  // Devis réellement créé pour cette conversation, une fois la création
+  // confirmée (étape 5) — permet de répondre de façon idempotente à toute
+  // relecture/rejeu sans jamais recréer de devis.
+  lastCreatedDevisId String?
+  optedOut      Boolean   @default(false) // STOP de l'artisan envers le bot
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  // Sert à détecter un état "creating" resté bloqué (crash pendant la
+  // création) : reprenable seulement après un délai, jamais immédiatement
+  // — sinon l'état transitoire lui-même deviendrait une brèche dans
+  // l'exclusion mutuelle entre deux tentatives concurrentes.
+  updatedAt     DateTime  @updatedAt
+
+  user     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages WhatsappMessage[]
+  sends    WhatsappSend[]
+
+  @@index([phoneNumber])
+  @@index([userId])
+}
+
+model WhatsappMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  direction      String // "in" | "out"
+  type           String // "text" | "audio" | "document"
+  externalId     String?  @unique // wamid Meta — garantit le dédoublonnage
+  content        String   @db.Text
+  createdAt      DateTime @default(now())
+
+  // ── Champs dédiés aux messages vocaux (type="audio") ──────────────────
+  // Volontairement séparés de `content` plutôt que d'y encoder plusieurs
+  // informations sous forme de texte ambigu (ex. "[audio:ID]").
+  mediaId             String? // identifiant média Meta, avant téléchargement
+  mimeType            String? // type MIME réel constaté au téléchargement
+  durationSeconds     Int? // durée audio arrondie, si fournie par le STT
+  transcription       String? @db.Text
+  // pending | done | failed — uniquement pertinent pour type="audio".
+  // "pending" = pas encore transcrit ; permet de savoir sur un retry si la
+  // transcription a déjà réussi (jamais rappeler l'API dans ce cas).
+  transcriptionStatus String?
+  transcriptionModel  String? // modèle utilisé — pour mesurer coûts/usage réels
+  transcriptionMs     Int? // temps de traitement de la transcription (ms)
+
+  // ── Checkpoint d'extraction IA (étape 8bis — idempotence) ─────────────
+  // Même principe que transcriptionStatus, pour le même besoin : ne jamais
+  // rappeler le modèle une seconde fois pour CE message si un résultat
+  // valide a déjà été obtenu, y compris quand un retry de job intervient
+  // APRÈS l'extraction (ex. l'envoi de la réponse WhatsApp échoue). null =
+  // pas encore tenté, "processing" = réclamé atomiquement par un worker,
+  // "done" = résultat validé disponible dans extractionResult. Pas d'état
+  // "failed" persistant ici (contrairement à transcriptionStatus) : un
+  // échec d'extraction n'est jamais définitif de ce point de vue (aucun cas
+  // "ça ne marchera jamais" comme pour l'audio), donc on revient simplement
+  // à null pour permettre un nouvel essai, au lieu de garder un état mort.
+  extractionStatus String?
+  // Résultat structuré validé (RawExtraction, cf. lib/whatsapp/pending-devis.ts)
+  // — jamais le texte brut renvoyé par le modèle, uniquement les champs
+  // déjà validés par le schéma Zod. Suffisant pour rejouer déterministement
+  // la suite du pipeline (fusion du brouillon, confirmation...) sans jamais
+  // raccéder au fournisseur IA pour ce message.
+  extractionResult Json?
+  extractionModel  String? // modèle utilisé — même esprit que transcriptionModel
+
+  // Nécessaire pour détecter un claim "processing" resté bloqué (crash
+  // pendant l'appel modèle) — même pattern que WhatsappJob/WhatsappConversation/
+  // WhatsappSend, absent jusqu'ici de ce modèle car non nécessaire avant.
+  updatedAt DateTime @updatedAt
+
+  conversation  WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  job           WhatsappJob?
+  aiUsageEvents AiUsageEvent[]
+}
+
+// File d'attente légère pour le traitement en arrière-plan (transcription,
+// IA, PDF, envoi) : le webhook répond à Meta en quelques centaines de ms et
+// planifie ce job ; un cron de secours reprend les jobs bloqués ou en échec.
+// Pas de file externe (Redis/BullMQ) pour la V1 — volume trop faible pour le
+// justifier, ce pattern cron+statut est déjà celui des relances.
+model WhatsappJob {
+  id        String   @id @default(cuid())
+  messageId String   @unique
+  status    String   @default("pending") // pending | processing | done | failed
+  attempts  Int      @default(0)
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  message WhatsappMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+// Suivi dédié et persistant de l'opération d'envoi WhatsApp d'un devis au
+// client final — distinct de Devis.status, qui ne suffit pas à lui seul :
+// l'appel Meta est un effet de bord EXTERNE à Postgres, qu'aucune
+// transaction locale ne peut annuler. Ce modèle est la seule source de
+// vérité sur "a-t-on déjà contacté Meta pour ce devis, et avec quel
+// résultat" — c'est ce qui permet de savoir, après un crash ou un retry,
+// si un message a déjà été accepté (externalMessageId renseigné) sans
+// jamais avoir à renvoyer le document une seconde fois.
+//
+// devisId est @unique : un seul WhatsappSend par devis pour toute la durée
+// de vie de l'application — la contrainte d'unicité de la base est la
+// dernière ligne de défense contre un double envoi, même en cas de bug
+// applicatif dans la logique de réclamation.
+model WhatsappSend {
+  id                String   @id @default(cuid())
+  devisId           String   @unique
+  conversationId    String
+  status            String   @default("pending") // pending | processing | success | failed
+  attempts          Int      @default(0)
+  // wamid Meta — preuve d'envoi. Renseigné UNIQUEMENT après confirmation
+  // explicite de Meta, jamais avant. @unique en plus du dédoublonnage
+  // applicatif : deux WhatsappSend ne peuvent jamais partager le même wamid.
+  externalMessageId String?  @unique
+  lastError         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  devis        Devis                @relation(fields: [devisId], references: [id], onDelete: Cascade)
+  conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+// Étape 8 — comptage brut de chaque appel IA réellement effectué (extraction
+// texte WhatsApp ou transcription vocale), un événement par appel réseau
+// réel au fournisseur (pas par message/tour de conversation). Sert de socle
+// à un plafond configurable (cf. lib/ai/usage.ts) — jamais une offre
+// commerciale figée ici, seulement des données brutes agrégables par
+// utilisateur et par mois. Jamais de contenu (texte, transcript) stocké ici,
+// uniquement des métadonnées numériques.
+model AiUsageEvent {
+  id           String   @id @default(cuid())
+  userId       String
+  kind         String // "extraction" | "transcription"
+  success      Boolean
+  inputTokens  Int?
+  outputTokens Int?
+  audioSeconds Int?
+  createdAt    DateTime @default(now())
+
+  // Association explicite (étape 8bis) entre l'événement d'usage et le
+  // WhatsappMessage entrant qui l'a déclenché — nullable (un événement n'est
+  // pas toujours rattachable à un message précis) et SetNull à la
+  // suppression : un événement d'usage est une trace d'audit/coût réel, elle
+  // ne doit jamais disparaître si son message source est supprimé.
+  // Volontairement PAS de contrainte d'unicité (messageId, kind) : un même
+  // message peut légitimement produire plusieurs événements réels pour un
+  // seul appel logique (ex. un essai échoué suivi d'un essai réussi, cf.
+  // MAX_ATTEMPTS dans lib/whatsapp/extraction.ts) — l'idempotence contre les
+  // retries de JOB (aucun réappel du modèle une fois le résultat obtenu) est
+  // garantie en amont par le claim atomique sur WhatsappMessage.extractionStatus
+  // (lib/whatsapp/extraction-checkpoint.ts), pas par une contrainte ici.
+  messageId String?
+  message   WhatsappMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([messageId])
 }
