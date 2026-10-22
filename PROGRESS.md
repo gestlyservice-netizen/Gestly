@@ -4,6 +4,31 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 15 : connexion pour la sauvegarde (terminée, sauvegarde NON lancée)
+
+Aucune lecture de `.env*` par Claude (règle 2 et garde-fou), aucune donnée modifiée, aucune migration, aucune variable d'environnement modifiée.
+
+### Fait
+- **Prérequis vérifiés** :
+  - PostgreSQL 17.11 installé dans `C:\Program Files\PostgreSQL\17\bin` : `pg_dump`, `pg_restore`, `psql`, `initdb`, `pg_ctl`, `createdb`. Absent du PATH, mais les scripts les trouvent à cet emplacement ;
+  - port 54329 libre (restauration temporaire) ;
+  - Node 24 ; politique d'exécution `Bypass`.
+- **Connexion existante** : le projet n'utilise qu'une variable, `DATABASE_URL` (`lib/prisma.ts`, `prisma.config.ts` ; aucune `DIRECT_URL`). Sa nature (connexion directe, pooler en mode session ou en mode transaction) n'est pas connue de Claude, qui ne lit pas le fichier.
+- **Connexion directe joignable** depuis ce poste : DNS en IPv6 uniquement, IPv6 publique présente, TCP 5432 accessible (test sans authentification).
+- **`scripts/db/pg-connection.ps1`** (nouveau), utilisé par `backup.ps1` :
+  - récupère l'URI dans `GESTLY_DB_URL`, sinon `DATABASE_URL` de `.env.local` puis `.env`, sinon par saisie masquée ;
+  - la décompose en variables `PG*` du seul processus du script : le mot de passe n'apparaît jamais dans une ligne de commande, un journal ou un fichier ;
+  - ignore les paramètres Prisma refusés par libpq (`pgbouncer`, `connection_limit`) ;
+  - remplace le mode transaction du pooler (6543) par le mode session (5432) ;
+  - affiche un diagnostic sans secret.
+  Testé sur 4 URI **fictives** : mot de passe encodé, transaction → session, paramètres ignorés, absence de mot de passe refusée.
+- **`backup.ps1 -CheckOnly`** : test de connexion en lecture seule (version du serveur, nombre de tables), sans sauvegarde.
+
+### Prochaine action (utilisateur)
+`backup.ps1 -CheckOnly`, puis `backup.ps1`, puis `verify-backup.ps1 -BackupDir … -Rehearse` (plan, §6).
+
+---
+
 ## 2026-10-22 — Mission 14 : préparation de la bascule vers le nouveau schéma (terminée)
 
 Branche `test/whatsapp-flow`. Aucune migration exécutée sur Supabase, aucune écriture ni suppression en base (requêtes de catalogue et agrégats uniquement), aucun déploiement, aucun push.

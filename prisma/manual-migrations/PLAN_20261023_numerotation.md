@@ -108,12 +108,17 @@ winget install --id PostgreSQL.PostgreSQL.17 -e
 $env:Path += ";C:\Program Files\PostgreSQL\17\bin"
 pg_dump --version
 
-# Connexion : URI « Session pooler » (Supabase → Connect), saisie masquée, jamais dans l'historique ni un fichier
+# Connexion : backup.ps1 réutilise DATABASE_URL de .env.local (puis .env) sans l'afficher,
+# passe automatiquement du mode transaction (6543) au mode session (5432) du pooler,
+# ignore les paramètres Prisma et transmet le mot de passe par variables PG* du processus.
+# A3 — Test de connexion seul (lecture seule), puis sauvegarde
+powershell -ExecutionPolicy Bypass -File scripts\db\backup.ps1 -CheckOnly
+powershell -ExecutionPolicy Bypass -File scripts\db\backup.ps1
+
+# Pour les commandes psql ci-dessous (B, C), l'URI doit être dans GESTLY_DB_URL : saisie masquée
+# de l'URI « Session pooler » (Supabase → Connect), jamais dans l'historique ni un fichier.
 $s = Read-Host "URI Session pooler" -AsSecureString
 $env:GESTLY_DB_URL = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
-
-# A3 — Sauvegarde (lecture seule)
-powershell -ExecutionPolicy Bypass -File scripts\db\backup.ps1
 # A4 — Preuve de restaurabilité + répétition sur la copie restaurée (aucune connexion à Supabase)
 powershell -ExecutionPolicy Bypass -File scripts\db\verify-backup.ps1 -BackupDir "<dossier affiché par backup.ps1>" -Rehearse
 
