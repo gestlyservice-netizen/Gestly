@@ -68,7 +68,7 @@ Origine : code retrouvé le 2026-10-22 dans la copie de l'ancien PC, sur une bra
 | Garde-fous : STOP/START artisan, opt-out client, escalade | 🧪 | `lib/whatsapp/artisan-optout.ts`, `client-optout.ts`, `escalation.ts`, `app/api/whatsapp/reactivate/route.ts` | `artisan-optout.test.ts` 7/7, `client-optout.test.ts` 8/8, `escalation.test.ts` 3/3 (route `reactivate` non testée) |
 | Plafond mensuel d'usage IA | 🧪 | `lib/ai/usage.ts`, `lib/ai/config.ts` | `lib/ai/usage.test.ts` 9/9 |
 | Notifications dédupliquées (`createNotificationOnce`) | 🧪 | `lib/notifications.ts` | `lib/notifications.test.ts` 4/4 (contrainte d'unicité simulée, pas l'index Postgres réel) |
-| Schéma de données (7 nouveaux modèles, champs `whatsappOptOut`, `signature*`) | 🟡 ⚠️ | `prisma/schema.prisma`, `prisma/manual-migrations/` (9 paires up/down) | Client Prisma généré localement ; **état de la base réelle inconnu** |
+| Schéma de données (7 nouveaux modèles, champs `whatsappOptOut`, `signature*`) | 🟢 | `prisma/schema.prisma`, `prisma/manual-migrations/` (9 paires up/down) | **Base Supabase conforme au schéma** (vérifié en lecture seule le 2026-10-22 : 22 tables, colonnes, types, nullabilité, défauts, 29 clés étrangères, 19 index ; les 9 migrations de l'agent sont enregistrées dans `supabase_migrations`) |
 
 ## Socle de développement autonome
 
@@ -84,16 +84,18 @@ Origine : code retrouvé le 2026-10-22 dans la copie de l'ancien PC, sur une bra
 | CI GitHub Actions (lint, typecheck, tests, build) | 🔴 |
 | `.claude/` versionné (settings, hooks, sous-agents) | 🔴 ⚠️ `.claude/` est actuellement ignoré par `.gitignore` |
 
-## Prochaines étapes (ordre recommandé)
+## Prochaines étapes (ordre recommandé, révisé le 2026-10-22)
 
-1. **Environnement isolé** : base PostgreSQL de dev (recommandation : projet Supabase dédié), instance Clerk de dev, Stripe en mode test. Prérequis à tout test en exécution.
-2. Mettre de côté le `.env.local` actuel (hors du dépôt) et créer `.env.local` + `.env` à partir de `.env.example` avec des valeurs de dev uniquement (action utilisateur).
-3. Initialiser le schéma de la base de dev (`prisma db push` **sur la base de dev uniquement**, après accord explicite).
-4. `.claude/settings.json` versionné : interdictions (`prisma db push|migrate`, `vercel`, `git push`, lecture `.env*`) + hooks de vérification ; corriger `.gitignore` (`.claude/` → `.claude/settings.local.json`).
-5. Garde-fous de code (avec accord) : fournisseur SMS et email « console » en dev, URL Meta configurable dans la route devis/whatsapp, `APP_URL` localhost en dev, SSL Postgres configurable.
-6. Sécurité des dépendances (correctifs semver, `shadcn` en dev), puis migration Next 15.5.
-7. CI GitHub Actions : lint, typecheck, tests, build isolé.
-8. Tests manquants : webhook, `job-queue`, `confirm-creation`, `createDevis`, `createClient`, puis le reste de l'application.
+Décision : la base Supabase actuelle (données fictives) sert au développement. Le plan détaillé et priorisé est dans `PROGRESS.md` (Mission 6).
+
+1. **P0 — Mode simulation des envois** (code, avec accord) : un interrupteur unique qui bloque WhatsApp, SMS, emails et IA hors production. En attendant, l'utilisateur peut vider ces clés dans `.env.local`.
+2. **P0 — `.claude/settings.json` versionné** : interdictions (`prisma db push|migrate`, `vercel`, `git push`, lecture `.env*`, outils Supabase en écriture soumis à confirmation) ; corriger `.gitignore`.
+3. **P0 — Sécurité** : révoquer le token GitHub exposé ; rotation des clés éventuellement présentes dans l'ancien `.env` de l'historique Git ; corriger l'avis Supabase `rls_auto_enable` (SECURITY DEFINER exécutable par `anon`).
+4. **P1 — Tests manquants** : webhook WhatsApp (signature), `job-queue`, `confirm-creation`, `createDevis`, `createClient`, webhook Stripe, moteur de relances, numérotation devis/factures.
+5. **P1 — Dépendances** : correctifs semver, `shadcn` en dev, puis migration Next 15.5.
+6. **P1 — CI GitHub Actions** : lint, typecheck, tests, build isolé.
+7. **P2 — Recette** : parcours complets en local avec services simulés, puis tests réels contrôlés (Stripe test, un numéro WhatsApp de test, un SMS) après accord.
+8. **P2 — Pré-lancement** : séparer ou nettoyer la base, configuration de production Vercel (Clerk prod, Stripe live, `CRON_SECRET`), fusion dans `main` et déploiement.
 
 ## Risques identifiés (non corrigés)
 

@@ -4,6 +4,81 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 6 : base Supabase actuelle comme base de développement
+
+**Décision de l'utilisateur** : aucun client réel, données Supabase fictives et supprimables. La base actuelle sert au développement et aux tests ; pas de nouvel environnement de base pour l'instant.
+
+### 1. Connexion et structure (lecture seule, via le connecteur Supabase)
+
+- Un seul projet : `ixaxfhitplhynhpihojx` (« gestlyservice-netizen's Project »), `ACTIVE_HEALTHY`, Postgres 17.6, région eu-west-1.
+- `.env.local` référence bien ce projet (test oui/non sur l'identifiant public, aucune valeur affichée).
+- 22 tables dans `public`, RLS activée partout, **aucune politique** : tout accès via l'API publique Supabase (anon/authenticated) est refusé ; Prisma passe par le rôle propriétaire. Volumes : User 3, Client 2, Devis 8, DevisLine 13, Notification 8, AiUsageEvent 58, toutes les autres tables vides.
+- Migrations enregistrées dans `supabase_migrations.schema_migrations` (11) : les 9 de l'agent WhatsApp (`whatsapp_agent_v1_foundations`, `step5_*` ×2, `step6_whatsapp_send`, `step7_voice_transcription_fields`, `step8_ai_usage`, `step8bis_*` ×2), plus `create_settings_table`, `add_facture_lines_notes_duedate` et `remove_public_listing_on_documents_bucket`.
+
+### 2. Comparaison des 22 modèles Prisma avec la base
+
+| Élément | Résultat |
+|---|---|
+| Tables | ✅ 22/22 |
+| Colonnes (noms et types) | ✅ identiques pour les 22 tables |
+| Nullabilité | ✅ 76 champs optionnels = 76 colonnes nullables |
+| Valeurs par défaut | ✅ 65/65 conformes (dont `trialEndsAt` en `dbgenerated`). En plus en base : `WhatsappMessage.updatedAt DEFAULT CURRENT_TIMESTAMP` (sans effet) |
+| Clés étrangères | ✅ 29/29, avec les mêmes `CASCADE` / `SET NULL` |
+| Index et contraintes d'unicité | ✅ 19/19. En plus en base : **index unique partiel `Notification(userId, dedupeKey) WHERE dedupeKey IS NOT NULL`** (migration `step8bis_notification_dedupe`), non exprimable en Prisma |
+
+**Aucune migration manquante.** ⚠️ Une `prisma db push` supprimerait l'index partiel de déduplication (et le défaut de `WhatsappMessage.updatedAt`) : **ne jamais l'utiliser** sur cette base.
+
+### 3. Avis de sécurité Supabase
+
+- WARN : `public.rls_auto_enable()` est une fonction `SECURITY DEFINER` exécutable par `anon` et `authenticated` via `/rest/v1/rpc/rls_auto_enable`. Correction proposée (après accord) : `REVOKE EXECUTE ... FROM anon, authenticated`, ou sortir la fonction du schéma exposé.
+- INFO : « RLS enabled, no policy » sur les 22 tables. C'est voulu : l'app n'utilise pas l'API Supabase pour ces tables.
+
+### 4. Risques d'envoi réel en local (présence et type des clés, sans valeurs)
+
+| Service | `.env.local` | Risque |
+|---|---|---|
+| Stripe | Clé **TEST** (préfixe vérifié), webhook et prix définis | ✅ Pas de paiement réel |
+| Clerk | Instance de **développement** | ✅ |
+| WhatsApp (Meta) | Token, phone ID, app secret définis ; `WHATSAPP_GRAPH_API_BASE_URL` absent | 🔴 Messages réels via `graph.facebook.com` |
+| OVH SMS | 5 variables définies | 🔴 SMS réels et facturés (pas de mode test) |
+| Resend | Clé définie | 🔴 Emails réels |
+| IA | `OPENAI_API_KEY` défini (pas de Gateway, pas de `VERCEL_OIDC_TOKEN`) | 🔴 Appels OpenAI facturés (extraction, Whisper, amélioration de texte) |
+| Supabase Storage | URL + clé `service_role` définies | 🟠 Écriture dans le stockage réel (données fictives) |
+| Sentry | DSN défini | 🟠 Erreurs locales envoyées au projet Sentry |
+| Cron | `CRON_SECRET` absent | ✅ Les routes cron refusent tout sauf l'administrateur connecté (vérifié dans le code) |
+| `APP_URL` | localhost, mais `lib/url.ts` le remplace par `www.gestly.fr` | 🟠 Liens vers le site public |
+
+Autres variables présentes (noms) : `NEXT_PUBLIC_CLERK_*_URL` ×4, `NEXT_PUBLIC_APP_URL`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `VERCEL_PROTECTION_BYPASS` (secret de contournement de la protection Vercel, à traiter comme sensible).
+
+### 5. Protections minimales proposées
+
+1. **Immédiat, sans code (utilisateur)** : vider dans `.env.local` les variables WhatsApp, OVH, Resend et `OPENAI_API_KEY` tant que le mode simulation n'existe pas. Les services se désactivent proprement (WhatsApp et OVH renvoient une erreur ou `false`, l'IA est désactivée). Exception : les routes d'envoi d'email lèvent une erreur « Missing API key ».
+2. **Code (avec accord), priorité 0** : un interrupteur unique `OUTBOUND_MODE=simulate|live` (par défaut `simulate` hors production), appliqué à tous les points d'envoi : `lib/whatsapp/send.ts`, `lib/whatsapp/media.ts` (upload), `app/api/devis/[id]/whatsapp/route.ts`, `lib/sms/index.ts`, les 5 usages de Resend, et la résolution des modèles IA (`lib/ai/config.ts`, `app/api/ai/improve-message`). En mode simulation : journalisation, puis réponse simulée.
+3. **Claude Code** : `.claude/settings.json` versionné avec `deny` sur `prisma db push`, `prisma migrate`, `prisma db execute`, `vercel`, `git push`, `Read(.env*)` ; confirmation obligatoire pour les outils Supabase en écriture (`apply_migration`, `execute_sql`) ; `.gitignore` corrigé (`.claude/settings.local.json` seulement).
+4. **Schéma** : uniquement par SQL up/down dans `prisma/manual-migrations/`, appliqué après accord, puis `schema.prisma` aligné et `prisma generate`. Jamais `db push`.
+5. **Données de test** : numéros et emails manifestement fictifs (`@example.com`, numéros de la plage fictive) pour qu'aucun envoi accidentel n'atteigne une vraie personne.
+
+### 6. Plan de correction priorisé pour la V1
+
+**P0 — avant tout test en exécution**
+1. Mode simulation des envois (point 5.2) + tests associés.
+2. `.claude/settings.json` + `.gitignore`.
+3. Révoquer le token GitHub exposé (copie de l'ancien PC) ; vérifier l'ancien `.env` de l'historique Git et faire une rotation si besoin ; traiter `VERCEL_PROTECTION_BYPASS` comme secret.
+4. Corriger l'avis Supabase `rls_auto_enable` (après accord).
+
+**P1 — fiabilité**
+5. Tests : signature du webhook WhatsApp et route webhook, `job-queue`, `confirm-creation`, `client-resolution`, `createDevis`, `createClient`, webhook Stripe, `lib/relances/engine.ts`, numérotation devis/factures, contrôle d'accès (`userId`) des routes API.
+6. Dépendances : correctifs semver, `shadcn` en dev ; puis migration Next 15.5.x.
+7. CI GitHub Actions (lint, typecheck, tests, build isolé).
+8. `lib/url.ts` : autoriser `localhost` hors production ; route devis/whatsapp via `getGraphConfig()` ; `telemetry: false` pour Sentry.
+
+**P2 — recette et lancement**
+9. Recette locale des parcours complets en mode simulation (inscription, abonnement Stripe test, client, devis, signature, facture, avoir, relances, agent WhatsApp avec webhook simulé).
+10. Tests réels contrôlés, un par service, avec accord : Stripe test, un message WhatsApp vers un numéro de test, un SMS, un email.
+11. Pré-lancement : nettoyer la base ou créer une base de production dédiée ; configurer la production Vercel (Clerk prod, Stripe live, `CRON_SECRET`, clés réelles) ; WhatsApp Business (templates approuvés, webhook enregistré) ; fusion dans `main` et déploiement ; rate limiting persistant (actuellement en mémoire).
+
+---
+
 ## 2026-10-22 — Mission 5 : préparation d'un environnement de développement isolé
 
 Branche : `chore/claude-setup`. Analyse par lecture du code uniquement : aucune valeur de `.env*` lue, aucune base créée ou modifiée, aucune migration, aucun appel externe.

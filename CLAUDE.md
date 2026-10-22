@@ -20,7 +20,18 @@ SaaS de gestion pour artisans et indépendants : clients, devis, factures, avoir
 
 ## Environnement de développement isolé (obligatoire)
 
-État au 2026-10-22 : **aucun environnement isolé n'est encore confirmé.** Le fichier `.env.local` du poste existe, mais son contenu n'a pas été inspecté : le considérer comme de la production.
+**Décision de l'utilisateur (2026-10-22)** : Gestly n'a aucun client réel. Les données Supabase sont fictives, et la base Supabase actuelle (projet `ixaxfhitplhynhpihojx`, Postgres 17, eu-west-1) **sert à la fois au développement et aux tests**. Aucun nouvel environnement de base pour l'instant.
+
+État vérifié le 2026-10-22, sans lecture des valeurs :
+- `.env.local` référence bien ce projet Supabase.
+- Stripe : **mode test** (préfixe de clé). Clerk : **instance de développement** (préfixes `pk_test_`/`sk_test_`).
+- ⚠️ **Clés réelles présentes** pour Resend, OVH SMS, WhatsApp (Meta) et OpenAI. **Tout parcours qui envoie déclenche un envoi réel** (SMS facturés, messages WhatsApp, emails, appels IA facturés).
+- `CRON_SECRET` absent en local : les routes cron ne sont alors accessibles qu'à l'administrateur connecté.
+
+Règles qui en découlent :
+- Données de la base : créer et modifier des données **fictives** est autorisé pour développer et tester. Toute **suppression** de données reste soumise à accord explicite.
+- **Changements de schéma** : jamais `prisma db push`. Il supprimerait l'index unique partiel `Notification(userId, dedupeKey) WHERE dedupeKey IS NOT NULL`, qui n'est pas exprimable dans `schema.prisma` et garantit `createNotificationOnce`. Procédure : fichier SQL up/down dans `prisma/manual-migrations/`, appliqué après accord explicite, puis mise à jour de `schema.prisma` et `prisma generate`.
+- **Envois réels** : tant que le mode simulation n'est pas en place dans le code, ne jamais déclencher en local un parcours qui envoie un SMS, un WhatsApp, un email ou un appel IA. Ne jamais utiliser de vrais numéros de téléphone ou adresses email dans les données de test.
 
 ### Règles
 
