@@ -1,6 +1,32 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "NotebookEdit",
+      "Bash",
+      "PowerShell",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__list_migrations",
+      "mcp__claude_ai_Supabase__list_extensions",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__list_organizations",
+      "mcp__claude_ai_Supabase__list_branches",
+      "mcp__claude_ai_Supabase__list_edge_functions",
+      "mcp__claude_ai_Supabase__get_project",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "mcp__claude_ai_Supabase__get_organization",
+      "mcp__claude_ai_Supabase__get_advisors",
+      "mcp__claude_ai_Supabase__get_edge_function",
+      "mcp__claude_ai_Supabase__query_logs",
+      "mcp__claude_ai_Supabase__search_docs",
+      "mcp__claude_ai_Supabase__generate_typescript_types"
+    ],
     "deny": [
       "Read(./.env)",
       "Read(./.env.local)",
@@ -21,18 +47,27 @@
       "Bash(vercel:*)",
       "Bash(npx vercel:*)",
       "Bash(prisma db push:*)",
-      "Bash(prisma migrate:*)",
       "Bash(prisma db execute:*)",
+      "Bash(prisma migrate dev:*)",
+      "Bash(prisma migrate deploy:*)",
+      "Bash(prisma migrate reset:*)",
+      "Bash(prisma migrate resolve:*)",
       "Bash(npx prisma db push:*)",
-      "Bash(npx prisma migrate:*)",
       "Bash(npx prisma db execute:*)",
+      "Bash(npx prisma migrate dev:*)",
+      "Bash(npx prisma migrate deploy:*)",
+      "Bash(npx prisma migrate reset:*)",
+      "Bash(npx prisma migrate resolve:*)",
       "Bash(npm exec -- prisma db push:*)",
-      "Bash(npm exec -- prisma migrate:*)",
       "Bash(npm.cmd exec -- prisma db push:*)",
-      "Bash(npm.cmd exec -- prisma migrate:*)",
+      "Bash(npm exec -- prisma migrate dev:*)",
+      "Bash(npm.cmd exec -- prisma migrate dev:*)",
+      "Bash(npm exec -- prisma migrate deploy:*)",
+      "Bash(npm.cmd exec -- prisma migrate deploy:*)",
+      "Bash(npm exec -- prisma migrate reset:*)",
+      "Bash(npm.cmd exec -- prisma migrate reset:*)",
       "Bash(supabase db push:*)",
       "Bash(supabase db reset:*)",
-      "Bash(psql:*)",
       "Bash(printenv:*)",
       "mcp__claude_ai_Supabase__apply_migration",
       "mcp__claude_ai_Supabase__deploy_edge_function",
@@ -45,15 +80,12 @@
       "mcp__claude_ai_Supabase__create_project",
       "mcp__claude_ai_Supabase__pause_project",
       "mcp__claude_ai_Supabase__restore_project"
-    ],
-    "ask": [
-      "mcp__claude_ai_Supabase__execute_sql"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Read|Edit|Write|MultiEdit|NotebookEdit|Grep|mcp__.*",
+        "matcher": "Bash|PowerShell|Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|mcp__.*",
         "hooks": [
           {
             "type": "command",
