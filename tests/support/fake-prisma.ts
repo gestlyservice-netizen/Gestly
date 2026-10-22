@@ -64,6 +64,7 @@ const MODELS: Record<string, ModelDef> = {
     relations: { lines: { model: "avoirLine", localKey: "id", foreignKey: "avoirId", many: true } },
   },
   avoirLine: { defaults: () => ({ tvaRate: 20 }), unique: [] },
+  documentNumberCounter: { defaults: () => ({}), unique: [["userId", "kind", "series"]], updatedAt: true },
   settings: {
     // Valeurs par défaut du schéma (prisma/schema.prisma, model Settings).
     defaults: () => ({ companyName: "", couleurPrincipale: "#2563EB", prefixeDevis: "DEV-", prefixeFacture: "FAC-", prochainNumeroDevis: 1, prochainNumeroFacture: 1, reservePropriete: false }),
@@ -130,9 +131,16 @@ function isOperatorObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !(v instanceof Date) && !Array.isArray(v);
 }
 
+const OPERATORS = new Set(["equals", "not", "in", "lt", "lte", "gt", "gte", "startsWith"]);
+
 function matches(row: Row, where: Record<string, unknown> | undefined): boolean {
   if (!where) return true;
   for (const [key, cond] of Object.entries(where)) {
+    // Clé unique composée Prisma (ex. userId_kind_series: { userId, kind, series }).
+    if (isOperatorObject(cond) && key.includes("_") && !Object.keys(cond).some((k) => OPERATORS.has(k))) {
+      if (!matches(row, cond)) return false;
+      continue;
+    }
     if (key === "OR") {
       if (!(cond as Record<string, unknown>[]).some((c) => matches(row, c))) return false;
       continue;
@@ -197,6 +205,7 @@ export class FakePrisma {
     this.advisoryLocks.length = 0;
     this.heldLocks.clear();
     this.locksDisabled = false;
+    this.countersTableExists = true;
     this.onTick = null;
   }
 
@@ -240,6 +249,8 @@ export class FakePrisma {
   private heldLocks = new Map<unknown, { owner: object; released: Promise<void>; release: () => void }>();
   // Désactive les verrous (test de mutation : prouver qu'ils sont nécessaires).
   locksDisabled = false;
+  // false = base AVANT la migration 20261023_document_number_counters.
+  countersTableExists = true;
 
   async $transaction<T>(fnOrBatch: ((tx: unknown) => Promise<T>) | Promise<unknown>[]): Promise<T> {
     if (Array.isArray(fnOrBatch)) {
@@ -280,6 +291,10 @@ export class FakePrisma {
   private async rawQuery(owner: object | null, strings: TemplateStringsArray, values: unknown[]): Promise<unknown[]> {
     const sql = strings.join("?");
     this.calls.push({ op: "$queryRaw", args: { sql, values } });
+    if (/to_regclass/.test(sql)) {
+      // Présence de la table des compteurs (migration appliquée ou non).
+      return [{ ok: this.countersTableExists }];
+    }
     if (/pg_advisory_xact_lock/.test(sql)) {
       const key = values[0];
       this.advisoryLocks.push({ key, inTransaction: owner !== null });

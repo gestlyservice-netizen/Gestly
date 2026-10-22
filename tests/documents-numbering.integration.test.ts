@@ -19,6 +19,7 @@ import { POST as createDevisWeb } from "@/app/api/devis/route";
 import { POST as duplicateDevis } from "@/app/api/devis/[id]/duplicate/route";
 import { DELETE as deleteClient } from "@/app/api/clients/[id]/route";
 import { GET as getSettings, POST as saveSettings } from "@/app/api/settings/route";
+import { PATCH as patchDevis, PUT as putDevis, DELETE as deleteDevis } from "@/app/api/devis/[id]/route";
 import { confirmDevisCreation } from "@/lib/whatsapp/confirm-creation";
 import { emptyPendingDevis, type PendingDevis } from "@/lib/whatsapp/pending-devis";
 
@@ -214,5 +215,146 @@ describe("devis — interface web, duplication et WhatsApp sur une même série"
     for (let i = 0; i < 3; i++) created.push(await (await createDevisWeb(post({ clientId: clientA.id, lines: [LINE] }))).json());
     fakePrisma.store.devis = fakePrisma.store.devis.filter((d) => d.id !== created[1].id);
     expect((await (await createDevisWeb(post({ clientId: clientA.id, lines: [LINE] }))).json()).number).toBe(num("DEV", 4));
+  });
+});
+
+// ── Décisions D1, D4 et D6 sur les routes réelles ─────────────────────────
+
+const settingsBody = (over: Record<string, unknown> = {}) => ({
+  companyName: "Artisan A", prefixeDevis: "DEV-", prefixeFacture: "FAC-", prochainNumeroDevis: 1, prochainNumeroFacture: 1, ...over,
+});
+const del = (id: string) => deleteDevis(new Request("http://localhost/x", { method: "DELETE" }), ctx(id));
+const createDevisA = async () => (await (await createDevisWeb(post({ clientId: clientA.id, lines: [LINE] }))).json()) as Record<string, any>;
+
+describe("D1 — Paramètres « Prochain n° » (série annuelle)", () => {
+  it("GET affiche le prochain numéro réel, pas la valeur enregistrée", async () => {
+    as(userA);
+    await createDevisA();
+    await createDevisA();
+    const settings = await (await getSettings()).json();
+    expect(settings).toMatchObject({ prefixeDevis: "DEV-", prochainNumeroDevis: 3, prochainNumeroFacture: 1 });
+  });
+
+  it("enregistrer les Paramètres avec la valeur affichée : accepté, sans effet sur la numérotation", async () => {
+    as(userA);
+    await createDevisA();
+    expect((await saveSettings(post(settingsBody({ prochainNumeroDevis: 2 })))).status).toBe(200);
+    expect((await createDevisA()).number).toBe(num("DEV", 2));
+  });
+
+  it("numéro de départ supérieur : appliqué au prochain devis de l'année", async () => {
+    as(userA);
+    expect((await saveSettings(post(settingsBody({ prochainNumeroDevis: 120 })))).status).toBe(200);
+    expect((await createDevisA()).number).toBe(num("DEV", 120));
+    expect((await (await getSettings()).json()).prochainNumeroDevis).toBe(121);
+  });
+
+  it("numéro inférieur à un numéro déjà attribué : 409 explicite, Paramètres non enregistrés", async () => {
+    as(userA);
+    await createDevisA();
+    await createDevisA();
+    const res = await saveSettings(post(settingsBody({ companyName: "Nouveau nom", prochainNumeroDevis: 1 })));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/ne peut pas être inférieur à 3/);
+    expect(rows("settings")).toHaveLength(0);
+  });
+
+  it("avant la migration des compteurs : choix refusé explicitement (jamais ignoré)", async () => {
+    fakePrisma.countersTableExists = false;
+    as(userA);
+    const res = await saveSettings(post(settingsBody({ prochainNumeroFacture: 50 })));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/disponible après la mise à jour de la base/);
+  });
+});
+
+describe("D4 — suppression des devis", () => {
+  it("brouillon jamais envoyé : supprimable, et son numéro n'est jamais réattribué", async () => {
+    as(userA);
+    const draft = await createDevisA();
+    expect((await del(draft.id)).status).toBe(200);
+    expect((await createDevisA()).number).toBe(num("DEV", 2));
+  });
+
+  it.each([
+    ["envoyé", { status: "envoye", sentAt: new Date() }],
+    ["signé", { status: "signe", sentAt: new Date(), signedAt: new Date() }],
+    ["refusé", { status: "refuse", sentAt: new Date() }],
+    ["repassé en brouillon après envoi", { status: "brouillon", sentAt: new Date() }],
+  ])("devis %s : suppression refusée (409), devis conservé", async (_label, state) => {
+    const devis = seed("devis", { userId: userA.id, clientId: clientA.id, number: num("DEV", 1), ...state });
+    as(userA);
+    const res = await del(devis.id);
+    expect(res.status).toBe(409);
+    expect(rows("devis")).toHaveLength(1);
+  });
+
+  it("devis facturé : suppression refusée", async () => {
+    const devis = seed("devis", { userId: userA.id, clientId: clientA.id, number: num("DEV", 1), status: "facture", sentAt: new Date(), signedAt: new Date() });
+    seed("facture", { userId: userA.id, clientId: clientA.id, devisId: devis.id, number: num("FAC", 1), totalHT: 1, totalTVA: 0, totalTTC: 1 });
+    as(userA);
+    expect((await del(devis.id)).status).toBe(409);
+  });
+
+  it("l'interface peut toujours repasser un devis signé en brouillon (retouche), sans le rendre supprimable", async () => {
+    const devis = seed("devis", { userId: userA.id, clientId: clientA.id, number: num("DEV", 1), status: "signe", sentAt: new Date(), signedAt: new Date() });
+    as(userA);
+    expect((await patchDevis(post({ status: "brouillon" }), ctx(devis.id))).status).toBe(200);
+    expect((await del(devis.id)).status).toBe(409);
+  });
+
+  it("suppression d'un client : refusée s'il a un devis envoyé ; autorisée s'il n'a que des brouillons", async () => {
+    seed("devis", { userId: userA.id, clientId: clientA.id, number: num("DEV", 1), status: "envoye", sentAt: new Date() });
+    as(userA);
+    const refused = await deleteClient(new Request("http://localhost/x", { method: "DELETE" }), ctx(clientA.id));
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).error).toMatch(/devis envoyés/);
+
+    const otherClient = seed("client", { userId: userA.id, name: "Client brouillons" });
+    seed("devis", { userId: userA.id, clientId: otherClient.id, number: num("DEV", 2) });
+    expect((await deleteClient(new Request("http://localhost/x", { method: "DELETE" }), ctx(otherClient.id))).status).toBe(200);
+  });
+});
+
+describe("D6 — une facture émise ne change pas", () => {
+  async function invoicedDevis() {
+    const devis = seed("devis", {
+      userId: userA.id, clientId: clientA.id, number: num("DEV", 1), status: "signe",
+      sentAt: new Date(), signedAt: new Date(), totalHT: 300, totalTVA: 60, totalTTC: 360,
+    });
+    seed("devisLine", { devisId: devis.id, description: "Peinture salon", quantity: 3, unitPriceHT: 100, tvaRate: 20, totalHT: 300 });
+    as(userA);
+    const facture = await (await toFacture(post({}), ctx(devis.id))).json();
+    return { devis, facture };
+  }
+
+  it("[régression] la facture porte ses propres lignes, copiées du devis à l'émission", async () => {
+    const { facture } = await invoicedDevis();
+    expect(rows("factureLine").filter((l) => l.factureId === facture.id)).toEqual([
+      expect.objectContaining({ description: "Peinture salon", quantity: 3, unitPriceHT: 100, tvaRate: 20, totalHT: 300 }),
+    ]);
+  });
+
+  it("[régression] un devis facturé ne peut plus être modifié (409), la facture reste identique", async () => {
+    const { devis, facture } = await invoicedDevis();
+    const res = await putDevis(post({ clientId: clientA.id, validityDays: 30, lines: [{ description: "Autre", quantity: 1, unitPriceHT: 1, tvaRate: 20 }] }), ctx(devis.id));
+    expect(res.status).toBe(409);
+    expect(rows("devisLine").map((l) => l.description)).toEqual(["Peinture salon"]);
+    expect(rows("facture").find((f) => f.id === facture.id)).toMatchObject({ totalTTC: 360 });
+  });
+
+  it("[régression] un devis facturé ne peut pas revenir à « signé » ni être refacturé", async () => {
+    const { devis } = await invoicedDevis();
+    expect((await patchDevis(post({ status: "signe" }), ctx(devis.id))).status).toBe(409);
+    expect((await patchDevis(post({ status: "brouillon" }), ctx(devis.id))).status).toBe(409);
+    // Même si le statut a été altéré auparavant (données existantes) :
+    fakePrisma.store.devis.find((d) => d.id === devis.id)!.status = "signe";
+    expect((await toFacture(post({}), ctx(devis.id))).status).toBe(409);
+    expect(rows("facture")).toHaveLength(1);
+  });
+
+  it("seul « payé » reste possible pour un devis facturé", async () => {
+    const { devis } = await invoicedDevis();
+    expect((await patchDevis(post({ status: "paye" }), ctx(devis.id))).status).toBe(200);
   });
 });

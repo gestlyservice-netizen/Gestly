@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { applyRequestedNext, NextNumberError, readSeriesState } from "@/lib/numbering/document-number";
 
 const PENALITES_DEFAUT =
   "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera " +
@@ -21,6 +22,15 @@ export async function GET() {
       where: { userId: user.id },
     });
 
+    // « Prochain n° » affiché = numéro qui sera réellement attribué (série
+    // annuelle ou personnalisée, compteurs, numéros existants), jamais une
+    // valeur enregistrée devenue fausse (cf. lib/numbering/document-number.ts).
+    const [devisSeries, factureSeries] = await Promise.all([
+      readSeriesState(prisma, "devis", user.id, settings),
+      readSeriesState(prisma, "facture", user.id, settings),
+    ]);
+    const actualNext = { prochainNumeroDevis: devisSeries.next, prochainNumeroFacture: factureSeries.next };
+
     if (!settings) {
       return NextResponse.json({
         companyName:           user.companyName ?? "",
@@ -38,15 +48,14 @@ export async function GET() {
         piedDePage:            "",
         prefixeDevis:          "DEV-",
         prefixeFacture:        "FAC-",
-        prochainNumeroDevis:   1,
-        prochainNumeroFacture: 1,
         conditionsPaiement:    CONDITIONS_DEFAUT,
         penalitesRetard:       PENALITES_DEFAUT,
         reservePropriete:      false,
+        ...actualNext,
       });
     }
 
-    return NextResponse.json(settings);
+    return NextResponse.json({ ...settings, ...actualNext });
   } catch (err) {
     console.error("[GET /api/settings]", err);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
@@ -87,14 +96,24 @@ export async function POST(request: Request) {
       updatedAt:             new Date(),
     };
 
-    const settings = await prisma.settings.upsert({
-      where:  { userId: user.id },
-      create: { id: crypto.randomUUID(), userId: user.id, ...data },
-      update: data,
+    // « Prochain n° » : appliqué à la série qui résulte des préfixes demandés,
+    // dans la même transaction que l'enregistrement, ou refusé avec une
+    // explication (jamais ignoré silencieusement).
+    const settings = await prisma.$transaction(async (tx) => {
+      await applyRequestedNext(tx, "devis", user.id, data, data.prochainNumeroDevis);
+      await applyRequestedNext(tx, "facture", user.id, data, data.prochainNumeroFacture);
+      return tx.settings.upsert({
+        where:  { userId: user.id },
+        create: { id: crypto.randomUUID(), userId: user.id, ...data },
+        update: data,
+      });
     });
 
     return NextResponse.json(settings);
   } catch (err) {
+    if (err instanceof NextNumberError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     console.error("[POST /api/settings]", err);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }

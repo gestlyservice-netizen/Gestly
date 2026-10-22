@@ -93,17 +93,30 @@ export async function DELETE(
       return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
     }
 
-    // Le schéma supprime en cascade les factures et avoirs d'un client
-    // supprimé : des documents comptables émis (à conserver légalement) et
-    // dont les numéros redeviendraient disponibles. Interdit tant que le
-    // client en possède. (Les devis restent supprimés avec le client.)
-    const [factures, avoirs] = await Promise.all([
+    // Le schéma supprime en cascade les documents d'un client supprimé.
+    // Interdit tant qu'il possède des factures ou avoirs (documents
+    // comptables à conserver) ou un devis déjà envoyé, signé ou facturé
+    // (décision D4 : seuls les brouillons jamais envoyés sont supprimables).
+    const [factures, avoirs, keptDevis] = await Promise.all([
       prisma.facture.count({ where: { clientId: params.id, userId: user.id } }),
       prisma.avoir.count({ where: { clientId: params.id, userId: user.id } }),
+      prisma.devis.count({
+        where: {
+          clientId: params.id,
+          userId: user.id,
+          OR: [{ status: { not: "brouillon" } }, { sentAt: { not: null } }, { signedAt: { not: null } }],
+        },
+      }),
     ]);
     if (factures > 0 || avoirs > 0) {
       return NextResponse.json(
         { error: "Ce client a des factures ou des avoirs : il ne peut pas être supprimé (conservation obligatoire des documents comptables)." },
+        { status: 409 }
+      );
+    }
+    if (keptDevis > 0) {
+      return NextResponse.json(
+        { error: "Ce client a des devis envoyés, signés ou facturés : il ne peut pas être supprimé (ces devis sont conservés)." },
         { status: 409 }
       );
     }

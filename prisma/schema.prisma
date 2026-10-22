@@ -39,6 +39,7 @@ model User {
   opportunities         Opportunity[]
   whatsappConversations WhatsappConversation[]
   aiUsageEvents         AiUsageEvent[]
+  documentNumberCounters DocumentNumberCounter[]
 }
 
 model Client {
@@ -98,6 +99,9 @@ model Devis {
   factures     Facture[]
   relances     RelanceDevis[]
   whatsappSend WhatsappSend?
+
+  // Migration 20261022_unique_document_numbers (proposée, non appliquée).
+  @@unique([userId, number])
 }
 
 model DevisLine {
@@ -128,12 +132,18 @@ model Facture {
   paidAt    DateTime?
   sentAt    DateTime?
 
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  client   Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // Document comptable à conserver : jamais supprimé en cascade avec son
+  // client ni avec le compte (migration 20261022_restrict_accounting_document_deletion,
+  // proposée, non appliquée).
+  user     User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  client   Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
   devis    Devis?        @relation(fields: [devisId], references: [id], onDelete: SetNull)
   lines    FactureLine[]
   avoirs   Avoir[]
   relances Relance[]
+
+  // Migration 20261022_unique_document_numbers (proposée, non appliquée).
+  @@unique([userId, number])
 }
 
 model FactureLine {
@@ -211,10 +221,34 @@ model Avoir {
   totalTTC  Float
   createdAt DateTime @default(now())
 
-  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  facture Facture     @relation(fields: [factureId], references: [id], onDelete: Cascade)
-  client  Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // Document comptable à conserver (migration
+  // 20261022_restrict_accounting_document_deletion, proposée, non appliquée).
+  user    User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  facture Facture     @relation(fields: [factureId], references: [id], onDelete: Restrict)
+  client  Client      @relation(fields: [clientId], references: [id], onDelete: Restrict)
   lines   AvoirLine[]
+
+  // Migration 20261022_unique_document_numbers (proposée, non appliquée).
+  @@unique([userId, number])
+}
+
+// Compteurs de numérotation : prochain numéro par (artisan, type, série).
+// Garantit qu'un numéro attribué n'est jamais réattribué, même après
+// suppression du document, et porte « Prochain n° » d'une série annuelle.
+// Cf. lib/numbering/document-number.ts. Migration
+// 20261023_document_number_counters (proposée, non appliquée) : tant que la
+// table n'existe pas, le code détecte son absence et ne l'utilise pas.
+model DocumentNumberCounter {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String // "devis" | "facture" | "avoir"
+  series    String // préfixe complet de la série, ex. "DEV-2026-" ou "F2026-"
+  nextValue Int
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, series])
 }
 
 model AvoirLine {

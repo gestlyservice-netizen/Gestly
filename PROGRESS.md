@@ -4,6 +4,38 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 12 : décisions D1 à D6 (terminée)
+
+Branche `test/whatsapp-flow`. Mission 11 commitée (`bf9c20c`). Modifications de cette mission **non commitées**. Aucune migration exécutée, aucune donnée modifiée.
+
+### Fait
+- **D1/D2/D3/D4** (`lib/numbering/document-number.ts`) : compteurs persistants par (artisan, type, série) dans une nouvelle table `DocumentNumberCounter`, dont la série annuelle fait partie de la clé (remise à 001 chaque année). « Prochain n° » est affiché par `GET /api/settings` comme le numéro réellement attribué. `POST /api/settings` l'applique, ou le **refuse en 409 avec explication** (valeur inférieure, ou série annuelle avant migration), jamais ignoré. Un numéro n'est jamais réattribué, même après suppression d'un brouillon. Avant la migration, la table absente est détectée (`to_regclass`) et le comportement de la Mission 11 s'applique.
+- **D4** (`lib/devis/lifecycle.ts`, `app/api/devis/[id]`, `app/api/clients/[id]`) : seul un devis brouillon jamais envoyé, signé ni facturé est supprimable (409 sinon). « Repasser en brouillon » reste possible depuis l'interface, sans rendre le devis supprimable. Un client ayant des devis envoyés, signés ou facturés n'est pas supprimable.
+- **D6** : la transformation devis → facture copie les lignes dans la facture. Un devis facturé n'est plus modifiable (PUT 409), ne change plus de statut sauf « payé », et n'est jamais refacturé.
+- **D5** (proposition seulement) : RESTRICT ajouté sur Facture.user et Avoir.user dans la migration de suppression restreinte. La suppression d'un compte possédant des documents comptables échouera ; aucune politique de rétention n'est implémentée.
+- **Migrations préparées (non exécutées)** dans `prisma/manual-migrations/` : `20261022_document_numbers_precheck.sql` (étendu), `20261022_unique_document_numbers_*`, `20261022_restrict_accounting_document_deletion_*` (étendu), `20261023_document_number_counters_*`, `20261023_freeze_invoice_lines_*` (fige les lignes des factures existantes ; réversible via une table de traçabilité).
+- **`schema.prisma`** mis dans l'état cible : modèle `DocumentNumberCounter`, `@@unique([userId, number])` sur Devis, Facture et Avoir, `onDelete: Restrict` sur les factures et avoirs. `prisma validate` OK, `prisma generate` local OK.
+- **Vérifications** : tsc ✅, lint ✅, **22 fichiers / 332 tests réussis** (+32 : D1 à D4, D6, fonctionnement avant migration).
+
+### Vérifications complémentaires
+- **Preuves de régression** : avec le code d'origine restauré temporairement (`git stash` de `document-number.ts` et des routes `devis/[id]`, `clients/[id]`, `to-facture`, `settings`), **15 tests d'intégration échouent** (D1 ×4, D4 ×8, D6 ×3), puis passent avec les corrections. Pile de stash vide ensuite.
+- **Build isolé** : ✅ code 0, 45 pages (copie sans `.env*`, variables factices, jonction retirée).
+- **Chemins de suppression vérifiés** : devis (`DELETE /api/devis/[id]` → règle D4), client (`DELETE /api/clients/[id]` → factures, avoirs, devis non brouillons), facture (aucune route ; `PATCH` limité à `mark_paid`), avoir (aucune route), compte (aucune route ; suppression directe en base → cascade aujourd'hui, RESTRICT proposé).
+- **Cohérence `schema.prisma` ↔ SQL** : revue manuelle conforme. La vérification automatique (`prisma migrate diff`, hors ligne) est **bloquée pour Claude** par la règle `deny` `prisma migrate` : à lancer par l'utilisateur (commande dans le plan).
+
+### Plan d'application des migrations
+Document complet : `prisma/manual-migrations/PLAN_20261023_numerotation.md` (compatibilité avec le code déployé, sauvegarde, contrôles préalables et résultats attendus, ordre, risques, contrôles après chaque étape, validation fonctionnelle, retour arrière, proposition D5).
+Ordre : sauvegarde → contrôle préalable → `document_number_counters` → `unique_document_numbers` → `restrict_accounting_document_deletion` → `freeze_invoice_lines` → validation → fusion et déploiement de la branche.
+
+### Points en attente de l'utilisateur
+- Autorisation et exécution des migrations (plan ci-dessus).
+- D5 : durées de conservation et mécanisme de fermeture de compte (proposition dans le plan, § 7).
+- Ne pas fusionner ni déployer `test/whatsapp-flow` avant les migrations : `schema.prisma` y décrit l'état cible (le code supporte l'absence de la table des compteurs, mais les garanties D1 et D4 ne sont complètes qu'après).
+- Interface non modifiée : un refus 409 de l'API (suppression, « Prochain n° ») s'affiche via la gestion d'erreur existante des pages, non vérifiée visuellement.
+- Modifications de cette mission **non commitées**.
+
+---
+
 ## 2026-10-22 — Mission 11 : numérotation fiable des devis, factures et avoirs
 
 Branche : `test/whatsapp-flow`. Aucune migration exécutée, aucune donnée Supabase modifiée (une seule requête en lecture seule, agrégats uniquement), aucun appel externe, aucun push, garde-fous inchangés.

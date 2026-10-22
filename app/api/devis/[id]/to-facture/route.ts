@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { allocateDocumentNumber } from "@/lib/numbering/document-number";
+import { isDevisInvoiced } from "@/lib/devis/lifecycle";
 
 class DevisAlreadyInvoicedError extends Error {}
 
@@ -18,6 +19,7 @@ export async function POST(
 
     const devis = await prisma.devis.findFirst({
       where: { id: params.id, userId: user.id },
+      include: { lines: true },
     });
     if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
 
@@ -38,6 +40,9 @@ export async function POST(
         data: { status: "facture" },
       });
       if (claim.count !== 1) throw new DevisAlreadyInvoicedError();
+      // Ceinture et bretelles (D6) : même un devis dont le statut aurait été
+      // modifié n'est jamais facturé deux fois.
+      if (await isDevisInvoiced(devis.id, tx)) throw new DevisAlreadyInvoicedError();
 
       const { number, issuedAt } = await allocateDocumentNumber(tx, "facture", user.id);
       return tx.facture.create({
@@ -51,6 +56,17 @@ export async function POST(
           totalHT:   devis.totalHT,
           totalTVA:  devis.totalTVA,
           totalTTC:  devis.totalTTC,
+          // D6 : la facture porte SES lignes, copiées du devis au moment de
+          // l'émission — elle ne dépend plus jamais du contenu du devis.
+          lines: {
+            create: devis.lines.map((l) => ({
+              description: l.description,
+              quantity:    l.quantity,
+              unitPriceHT: l.unitPriceHT,
+              tvaRate:     l.tvaRate,
+              totalHT:     l.totalHT,
+            })),
+          },
         },
       });
     });

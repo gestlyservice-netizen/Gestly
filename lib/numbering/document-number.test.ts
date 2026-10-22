@@ -5,6 +5,9 @@ vi.mock("@/lib/prisma", async () => ({ prisma: (await import("@/tests/support/fa
 import { fakePrisma } from "@/tests/support/fake-prisma";
 import {
   allocateDocumentNumber,
+  applyRequestedNext,
+  NextNumberError,
+  readSeriesState,
   resolveSeries,
   sequenceInSeries,
   formatDocumentNumber,
@@ -191,5 +194,126 @@ describe("erreurs et reprises de transaction", () => {
     const input = { userId: userA.id as string, clientId: clientA.id as string, lines: [{ description: "x", quantity: 1, unitPriceHT: 1, tvaRate: 20 }] };
     await expect(createDevis(input)).rejects.toThrow();
     await expect(createDevis(input)).resolves.toMatchObject({ number: legacy("DEV", 1) });
+  });
+});
+
+// ── Décisions métier D1 à D4 (validées le 2026-10-22) ─────────────────────
+
+const atYear = (year: number) => new Date(`${year}-06-15T10:00:00`);
+const allocateAt = (kind: DocumentKind, userId: unknown, now: Date) =>
+  fakePrisma.$transaction((tx) => allocateDocumentNumber(tx as never, kind, userId as string, now));
+const requestNext = (kind: "devis" | "facture", userId: unknown, settings: NumberingSettings, value: number, now?: Date) =>
+  fakePrisma.$transaction((tx) => applyRequestedNext(tx as never, kind, userId as string, settings, value, now));
+const nextOf = (kind: DocumentKind, userId: unknown, settings: NumberingSettings | null, now?: Date) =>
+  fakePrisma.$transaction(async (tx) => (await readSeriesState(tx as never, kind, userId as string, settings, now)).next);
+
+describe("D4 — un numéro attribué n'est jamais réattribué (compteurs)", () => {
+  it("[régression] série annuelle : le dernier devis brouillon supprimé ne libère pas son numéro", async () => {
+    const first = await allocate("devis", userA.id);
+    expect(first.number).toBe(legacy("DEV", 1));
+    // Aucun devis n'a été conservé (brouillon supprimé) : avant les
+    // compteurs, le numéro 001 était réattribué.
+    expect(fakePrisma.rows("devis")).toHaveLength(0);
+    expect((await allocate("devis", userA.id)).number).toBe(legacy("DEV", 2));
+  });
+
+  it("compteurs distincts par artisan, par type et par série", async () => {
+    await allocate("devis", userA.id);
+    await allocate("facture", userA.id);
+    await allocate("avoir", userA.id);
+    await allocate("devis", userB.id);
+    const keys = fakePrisma.rows("documentNumberCounter").map((c) => `${c.userId === userA.id ? "A" : "B"}:${c.kind}:${c.series}:${c.nextValue}`).sort();
+    expect(keys).toEqual([`A:avoir:AV-${YEAR}-:2`, `A:devis:DEV-${YEAR}-:2`, `A:facture:FAC-${YEAR}-:2`, `B:devis:DEV-${YEAR}-:2`]);
+  });
+});
+
+describe("D1 — série annuelle par défaut et « Prochain n° » cohérent", () => {
+  it("remise à 001 chaque année, indépendamment du compteur de l'année précédente", async () => {
+    for (let i = 0; i < 3; i++) await allocateAt("facture", userA.id, atYear(2026));
+    expect((await allocateAt("facture", userA.id, atYear(2027))).number).toBe("FAC-2027-001");
+    expect((await allocateAt("facture", userA.id, atYear(2026))).number).toBe("FAC-2026-004");
+  });
+
+  it("« Prochain n° » affiché = numéro réellement attribué (existant, compteur, année)", async () => {
+    seedDoc("devis", userA.id, legacy("DEV", 7));
+    expect(await nextOf("devis", userA.id, settingsDefaults)).toBe(8);
+    expect(await nextOf("devis", userA.id, settingsDefaults, atYear(YEAR + 1))).toBe(1);
+  });
+
+  it("choisir un numéro de départ supérieur : appliqué à la série de l'année en cours uniquement", async () => {
+    await requestNext("facture", userA.id, settingsDefaults, 150, atYear(2026));
+    expect((await allocateAt("facture", userA.id, atYear(2026))).number).toBe("FAC-2026-150");
+    expect((await allocateAt("facture", userA.id, atYear(2027))).number).toBe("FAC-2027-001");
+  });
+
+  it("valeur inférieure au prochain numéro réel : refus explicite, rien n'est modifié", async () => {
+    seedDoc("facture", userA.id, legacy("FAC", 12));
+    const err = await requestNext("facture", userA.id, settingsDefaults, 5).catch((e) => e);
+    expect(err).toBeInstanceOf(NextNumberError);
+    expect(err.message).toMatch(/ne peut pas être inférieur à 13/);
+    expect(fakePrisma.rows("documentNumberCounter")).toHaveLength(0);
+  });
+
+  it("valeur égale au prochain numéro réel (enregistrement des Paramètres sans changement) : acceptée sans effet", async () => {
+    seedDoc("facture", userA.id, legacy("FAC", 12));
+    await expect(requestNext("facture", userA.id, settingsDefaults, 13)).resolves.toBeUndefined();
+    expect(fakePrisma.rows("documentNumberCounter")).toHaveLength(0);
+  });
+
+  it("valeur non entière ou nulle : refus explicite", async () => {
+    await expect(requestNext("devis", userA.id, settingsDefaults, 0)).rejects.toBeInstanceOf(NextNumberError);
+    await expect(requestNext("devis", userA.id, settingsDefaults, 2.5)).rejects.toBeInstanceOf(NextNumberError);
+  });
+});
+
+describe("D2 — préfixe personnalisé : série continue", () => {
+  it("aucune remise à zéro au changement d'année", async () => {
+    const custom = { ...settingsDefaults, prefixeFacture: "F-" };
+    fakePrisma.seed("settings", { userId: userA.id, ...custom });
+    expect((await allocateAt("facture", userA.id, atYear(2026))).number).toBe("F-001");
+    expect((await allocateAt("facture", userA.id, atYear(2027))).number).toBe("F-002");
+  });
+
+  it("le compteur de la série personnalisée prévaut ; « Prochain n° » plus élevé appliqué", async () => {
+    const custom = { ...settingsDefaults, prefixeDevis: "D-", prochainNumeroDevis: 1 };
+    fakePrisma.seed("settings", { userId: userA.id, ...custom });
+    await allocate("devis", userA.id); // D-001
+    await requestNext("devis", userA.id, custom, 40);
+    expect((await allocate("devis", userA.id)).number).toBe("D-040");
+  });
+});
+
+describe("D3 — avoirs : série annuelle indépendante", () => {
+  it("indépendante des factures, remise à 001 chaque année", async () => {
+    for (let i = 0; i < 4; i++) await allocateAt("facture", userA.id, atYear(2026));
+    expect((await allocateAt("avoir", userA.id, atYear(2026))).number).toBe("AV-2026-001");
+    expect((await allocateAt("avoir", userA.id, atYear(2027))).number).toBe("AV-2027-001");
+  });
+});
+
+describe("avant la migration des compteurs (table absente)", () => {
+  beforeEach(() => {
+    fakePrisma.countersTableExists = false;
+  });
+
+  it("la numérotation fonctionne sans jamais accéder à la table absente", async () => {
+    seedDoc("devis", userA.id, legacy("DEV", 2));
+    expect((await allocate("devis", userA.id)).number).toBe(legacy("DEV", 3));
+    expect(fakePrisma.calls.some((c) => c.op.startsWith("documentNumberCounter."))).toBe(false);
+  });
+
+  it("« Prochain n° » différent en série annuelle : refus explicite (jamais ignoré)", async () => {
+    const err = await requestNext("devis", userA.id, settingsDefaults, 50).catch((e) => e);
+    expect(err).toBeInstanceOf(NextNumberError);
+    expect(err.message).toMatch(/disponible après la mise à jour de la base/);
+  });
+
+  it("préfixe personnalisé : « Prochain n° » accepté (porté par les Paramètres)", async () => {
+    await expect(requestNext("facture", userA.id, { ...settingsDefaults, prefixeFacture: "F-" }, 30)).resolves.toBeUndefined();
+  });
+
+  it("limite connue, levée par la migration : le dernier brouillon supprimé libère son numéro en série annuelle", async () => {
+    await allocate("devis", userA.id);
+    expect((await allocate("devis", userA.id)).number).toBe(legacy("DEV", 1));
   });
 });

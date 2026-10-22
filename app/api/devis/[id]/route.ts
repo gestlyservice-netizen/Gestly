@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createNotification } from "@/lib/notifications";
+import { deletionRefusal, isDevisInvoiced, modificationRefusal, statusChangeRefusal } from "@/lib/devis/lifecycle";
 
 async function getDevisForUser(id: string, userId: string) {
   return prisma.devis.findFirst({
@@ -44,6 +45,8 @@ export async function PATCH(
   if (!validStatuses.includes(status)) {
     return NextResponse.json({ error: "Statut invalide" }, { status: 400 });
   }
+  const statusRefusal = statusChangeRefusal(devis.status, status, await isDevisInvoiced(devis.id));
+  if (statusRefusal) return NextResponse.json({ error: statusRefusal }, { status: 409 });
 
   const updated = await prisma.devis.update({
     where: { id: params.id },
@@ -79,6 +82,9 @@ export async function PUT(
 
   const devis = await getDevisForUser(params.id, user.id);
   if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
+
+  const editRefusal = modificationRefusal(await isDevisInvoiced(devis.id));
+  if (editRefusal) return NextResponse.json({ error: editRefusal }, { status: 409 });
 
   const { clientId, validityDays, notes, lines } = await request.json();
 
@@ -137,6 +143,11 @@ export async function DELETE(
 
   const devis = await getDevisForUser(params.id, user.id);
   if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
+
+  // D4 : seuls les brouillons jamais envoyés ni signés sont supprimables.
+  // Le numéro reste réservé (compteur de numérotation), jamais réattribué.
+  const refusal = deletionRefusal(devis, await isDevisInvoiced(devis.id));
+  if (refusal) return NextResponse.json({ error: refusal }, { status: 409 });
 
   await prisma.devis.delete({ where: { id: params.id } });
   return NextResponse.json({ success: true });
