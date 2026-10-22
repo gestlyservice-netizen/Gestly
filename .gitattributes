@@ -1,0 +1,4 @@
+# Scripts Node exécutés directement (ex. hook Claude Code avec shebang) :
+# toujours en LF, même avec core.autocrlf=true sous Windows. En CRLF, la
+# ligne shebang n'est plus reconnue par la transformation de Vitest.
+*.mjs text eol=lf

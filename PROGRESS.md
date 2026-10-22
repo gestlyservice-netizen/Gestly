@@ -40,6 +40,13 @@ Build isolé : copie des fichiers suivis et non ignorés (`git ls-files -co --ex
 
 Le hook Claude Code a bloqué une de mes commandes de vérification (motif `^\.env` dans un `grep`), un faux positif documenté ; remplacée par une simple liste des fichiers cachés.
 
+### Étape 4 — Git
+
+- Commit `e9acb8a` sur `feat/outbound-simulation` (26 fichiers), arbre propre.
+- Merge `--no-ff` dans `chore/claude-setup` : commit `af7d980`, **aucun conflit** ; contenu identique à celui de `feat/outbound-simulation` (`git diff` vide).
+- ⚠️ Tests relancés sur `chore/claude-setup` après le merge : **17 fichiers / 149 tests réussis, 1 fichier en échec de chargement** (`tests/claude-guard.test.ts`, 62 tests). Cause identifiée : en changeant de branche, Git (`core.autocrlf=true`) a réécrit `.claude/hooks/guard.mjs` en CRLF dans la copie de travail (LF dans l'index) ; la ligne shebang n'est alors plus reconnue par la transformation de Vitest (`SyntaxError`). Le hook lui-même fonctionne toujours sous Node.
+- Correction : `.gitattributes` (`*.mjs text eol=lf`) commité pour éviter toute récidive. La ré-extraction du fichier existant (`git checkout -- .claude/hooks/guard.mjs`) a été **bloquée par le hook** (modification d'un garde-fou réservée à l'utilisateur) : **action utilisateur en attente**, puis relance de `npm test`.
+
 **Parcours réel non exécuté** : `npm run dev` n'a pas été lancé. Il chargerait `.env.local` (vraies clés) ; le mode simulation l'empêcherait d'envoyer, mais la base Supabase et Clerk seraient réellement utilisés. À faire avec l'utilisateur.
 
 ### Risques résiduels

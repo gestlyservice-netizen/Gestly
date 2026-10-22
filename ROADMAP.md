@@ -82,7 +82,7 @@ Origine : code retrouvé le 2026-10-22 dans la copie de l'ancien PC, sur une bra
 | Garde-fous Claude Code (`.claude/settings.json` + hook) | 🧪 Versionnés, hook actif et testé (62 cas, dont contournements) ; limites documentées |
 | Autres garde-fous de dev (`APP_URL` localhost, SSL Postgres configurable) | 🔴 Non traités |
 | Migrations Prisma versionnées (`prisma/migrations`) | 🔴 ⚠️ Pas de `prisma/migrations` ; seulement des scripts SQL manuels dans `prisma/manual-migrations/` (agent WhatsApp) |
-| Framework de tests | 🟢 Vitest 2.1.9 installé, **18 fichiers / 211 tests réussis** (2026-10-22, `feat/outbound-simulation`). Couverture limitée à l'agent WhatsApp, à `lib/ai/usage` et à `lib/notifications` ; le reste de l'application (devis, factures, relances, Stripe…) n'a **aucun test**. Playwright : 🔴 |
+| Framework de tests | 🟢 Vitest 2.1.9 installé, **18 fichiers / 211 tests réussis** sur `feat/outbound-simulation` (2026-10-22). Sur `chore/claude-setup` après merge : 149/149, plus `tests/claude-guard.test.ts` non chargé (fins de ligne CRLF du hook, ré-extraction en attente de l'utilisateur, voir `PROGRESS.md`). Couverture limitée à l'agent WhatsApp, à `lib/ai/usage` et à `lib/notifications` ; le reste de l'application (devis, factures, relances, Stripe…) n'a **aucun test**. Playwright : 🔴 |
 | Scripts npm `typecheck` / `test` / `check` | 🟡 `test` (`vitest run`) présent ; `typecheck` et `check` : 🔴 |
 | CI GitHub Actions (lint, typecheck, tests, build) | 🔴 |
 | `.claude/` versionné (settings, hooks, sous-agents) | 🔴 ⚠️ `.claude/` est actuellement ignoré par `.gitignore` |
