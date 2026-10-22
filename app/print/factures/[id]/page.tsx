@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Loader2, Printer } from "lucide-react";
+import { documentLegalMentions } from "@/lib/documents/legal-mentions";
 
 /* ── Types ─────────────────────────────────────────────── */
 interface Line {
@@ -44,6 +45,8 @@ interface Settings {
   couleurPrincipale: string;
   piedDePage:        string | null;
   penalitesRetard:   string | null;
+  conditionsPaiement: string | null;
+  reservePropriete:  boolean;
 }
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -121,8 +124,7 @@ export default function PrintFacturePage() {
   const lines      = (facture.lines ?? []).length > 0 ? facture.lines : (facture.devis?.lines ?? []);
   const isPaid     = facture.status === "payee";
   const adresseLigne2 = [settings?.codePostal, settings?.ville].filter(Boolean).join(" ");
-  const penalites  = settings?.penalitesRetard
-    ?? "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera exigée conformément à l'article L.441-6 du Code de commerce, ainsi qu'une indemnité forfaitaire de 40 euros pour frais de recouvrement (art. D.441-5).";
+  const mentions   = documentLegalMentions("facture", settings);
 
   return (
     <>
@@ -291,7 +293,7 @@ export default function PrintFacturePage() {
                   Mentions légales
                 </p>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Règlement à réception de facture. {penalites}
+                  {mentions}
                 </p>
               </div>
             </div>

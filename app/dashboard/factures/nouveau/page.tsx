@@ -466,10 +466,9 @@ export default function NouvelleFacturePage() {
               Mentions légales appliquées automatiquement
             </p>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Règlement à réception de facture. En cas de retard de paiement, une pénalité égale
-              à 3 fois le taux d&apos;intérêt légal sera exigée conformément à l&apos;article L.441-6
-              du Code de commerce, ainsi qu&apos;une indemnité forfaitaire de 40 euros pour frais de
-              recouvrement (art. D.441-5).
+              Conditions de paiement, absence d&apos;escompte, pénalités de retard et indemnité
+              forfaitaire de 40 euros, réserve de propriété si activée : selon vos Paramètres
+              (Mentions légales).
             </p>
           </div>
         </div>

@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { CONDITIONS_DEFAUT, PENALITES_DEFAUT } from "@/lib/documents/legal-mentions";
 
 /* ── Zod schema ─────────────────────────────────────────── */
 // z.coerce.number() infers as `unknown` in Zod v4 — on utilise z.number() et
@@ -74,8 +75,8 @@ const FORM_DEFAULTS: FormValues = {
   prefixeFacture:        "FAC-",
   prochainNumeroDevis:   1,
   prochainNumeroFacture: 1,
-  conditionsPaiement:    "Règlement à réception de facture.",
-  penalitesRetard:       "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera appliquée conformément à l'article L.441-6 du Code de commerce, ainsi qu'une indemnité forfaitaire de 40 € pour frais de recouvrement (art. D.441-5).",
+  conditionsPaiement:    CONDITIONS_DEFAUT,
+  penalitesRetard:       PENALITES_DEFAUT,
   reservePropriete:      false,
 };
 
@@ -508,7 +509,7 @@ export default function ParametresPage() {
               />
             </Field>
 
-            <Field label="Pénalités de retard" hint="Texte légal obligatoire selon l'art. L.441-6 du Code de commerce">
+            <Field label="Pénalités de retard" hint="Texte légal obligatoire selon l'art. L.441-10 du Code de commerce">
               <Textarea
                 {...register("penalitesRetard")}
                 rows={4}

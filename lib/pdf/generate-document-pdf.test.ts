@@ -100,4 +100,29 @@ describe("generateDevisPdfBuffer — PDF réel", () => {
     });
     expect(asText(pdf)).toContain("FAC-2026-007");
   });
+
+  it("[régression] facture : conditions de paiement, escompte et réserve de propriété des Paramètres imprimées", () => {
+    const text = asText(generateDocumentPdfBuffer({
+      docTypeLabel: "FACTURE", number: "FAC-2026-008", metaLines: [], client, lines,
+      totalHT: 1450, totalTVA: 290, totalTTC: 1740,
+      settings: { ...settings, conditionsPaiement: "Paiement à 30 jours.", reservePropriete: true },
+    }));
+    // Avant correction : « Règlement à réception » en dur, réglages ignorés.
+    expect(text).toContain("Paiement à 30 jours.");
+    expect(text).not.toContain("Règlement à réception");
+    expect(text).toContain("escompte");
+    expect(text).toContain("serve de propri"); // « réserve de propriété », coupure de ligne possible
+    // Toutes les lignes du pied de page restent dans la page (y > 0).
+    const ys = Array.from(text.matchAll(/[\d.-]+ ([\d.-]+) Td/g), (m) => Number(m[1]));
+    expect(Math.min(...ys)).toBeGreaterThan(0);
+  });
+
+  it("avoir : aucune condition de paiement imprimée", () => {
+    const text = asText(generateDocumentPdfBuffer({
+      docTypeLabel: "AVOIR", number: "AV-2026-001", metaLines: [], client, lines,
+      totalHT: 100, totalTVA: 20, totalTTC: 120, settings: { ...settings, reservePropriete: true },
+    }));
+    expect(text).not.toContain("escompte");
+    expect(text).not.toContain("40 euros");
+  });
 });

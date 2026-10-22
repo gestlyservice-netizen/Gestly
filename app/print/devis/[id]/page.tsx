@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Loader2, Printer } from "lucide-react";
+import { documentLegalMentions } from "@/lib/documents/legal-mentions";
 
 /* ── Types ─────────────────────────────────────────────── */
 interface DevisLine {
@@ -44,6 +45,8 @@ interface Settings {
   couleurPrincipale: string;
   piedDePage:        string | null;
   penalitesRetard:   string | null;
+  conditionsPaiement: string | null;
+  reservePropriete:  boolean;
 }
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -133,8 +136,7 @@ export default function PrintDevisPage() {
   expiryDate.setDate(expiryDate.getDate() + devis.validityDays);
 
   const adresseLigne2 = [settings?.codePostal, settings?.ville].filter(Boolean).join(" ");
-  const penalites     = settings?.penalitesRetard
-    ?? "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera exigée conformément à l'article L.441-6 du Code de commerce, ainsi qu'une indemnité forfaitaire de 40 euros pour frais de recouvrement (art. D.441-5).";
+  const mentions      = documentLegalMentions("devis", settings, { validityDays: devis.validityDays });
 
   return (
     <>
@@ -296,10 +298,7 @@ export default function PrintDevisPage() {
                   Mentions légales
                 </p>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Devis valable {devis.validityDays} jour{devis.validityDays > 1 ? "s" : ""} à compter
-                  de sa date d&apos;émission. {penalites} Aucun escompte accordé en cas de paiement
-                  anticipé. Pour accepter ce devis, veuillez nous contacter ou signer et retourner
-                  ce document.
+                  {mentions}
                 </p>
               </div>
             </div>

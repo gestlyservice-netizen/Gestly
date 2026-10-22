@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import { documentLegalMentions, type LegalMentionKind } from "@/lib/documents/legal-mentions";
 
 // Générateur de PDF vectoriel côté serveur (texte sélectionnable, poids réduit)
 // — utilisé pour les pièces jointes email (facture, avoir) où html2canvas
@@ -27,6 +28,8 @@ export interface DocumentPdfSettings {
   couleurPrincipale?: string | null;
   piedDePage?: string | null;
   penalitesRetard?: string | null;
+  conditionsPaiement?: string | null;
+  reservePropriete?: boolean | null;
 }
 
 export interface DocumentPdfClient {
@@ -37,7 +40,7 @@ export interface DocumentPdfClient {
 }
 
 export interface DocumentPdfOptions {
-  docTypeLabel: string; // "FACTURE" | "AVOIR" | "DEVIS"
+  docTypeLabel: "FACTURE" | "AVOIR" | "DEVIS";
   number: string;
   metaLines: { label: string; value: string }[];
   client: DocumentPdfClient;
@@ -47,8 +50,16 @@ export interface DocumentPdfOptions {
   totalTTC: number;
   notes?: string | null;
   extraNote?: string | null;
+  // Devis : durée de validité, reprise dans les mentions légales.
+  validityDays?: number;
   settings: DocumentPdfSettings | null;
 }
+
+const MENTION_KIND: Record<DocumentPdfOptions["docTypeLabel"], LegalMentionKind> = {
+  DEVIS: "devis",
+  FACTURE: "facture",
+  AVOIR: "avoir",
+};
 
 function hexToRgb(hex: string): [number, number, number] {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -69,7 +80,9 @@ const fmt = (n: number) =>
 // Mise en page A4 (mm) : le contenu s'arrête au-dessus du pied de page
 // (filet à FOOTER_Y - 6, mentions légales dessous), présent sur chaque page.
 const PAGE_TOP = 20;
-const FOOTER_Y = 275;
+// Pied de page assez haut pour 6 lignes de mentions légales (conditions,
+// escompte, pénalités, réserve de propriété).
+const FOOTER_Y = 268;
 const CONTENT_BOTTOM = FOOTER_Y - 10;
 
 export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
@@ -237,9 +250,9 @@ export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
   }
 
   // ── Pied de page / mentions légales — sur chaque page ──
-  const penalites =
-    opts.settings?.penalitesRetard ??
-    "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera exigée conformément à l'article L.441-6 du Code de commerce, ainsi qu'une indemnité forfaitaire de 40 euros pour frais de recouvrement (art. D.441-5).";
+  const mentions = documentLegalMentions(MENTION_KIND[opts.docTypeLabel], opts.settings, {
+    validityDays: opts.validityDays,
+  });
   const pageCount = doc.getNumberOfPages();
   for (let page = 1; page <= pageCount; page++) {
     doc.setPage(page);
@@ -251,7 +264,7 @@ export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
     if (opts.settings?.piedDePage) {
       doc.text(opts.settings.piedDePage, pageWidth / 2, FOOTER_Y - 2, { align: "center" });
     }
-    doc.text(doc.splitTextToSize(`Règlement à réception. ${penalites}`, contentWidth), marginX, FOOTER_Y + 3);
+    if (mentions) doc.text(doc.splitTextToSize(mentions, contentWidth), marginX, FOOTER_Y + 3);
     if (pageCount > 1) {
       doc.text(`${opts.number} — page ${page}/${pageCount}`, pageWidth - marginX, FOOTER_Y - 8, { align: "right" });
     }
@@ -298,6 +311,7 @@ export function generateDevisPdfBuffer(
     totalTVA: devis.totalTVA,
     totalTTC: devis.totalTTC,
     notes: devis.notes,
+    validityDays: devis.validityDays,
     settings,
   });
 }

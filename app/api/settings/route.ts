@@ -2,13 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { applyRequestedNext, NextNumberError, readSeriesState } from "@/lib/numbering/document-number";
-
-const PENALITES_DEFAUT =
-  "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera " +
-  "appliquée conformément à l'article L.441-6 du Code de commerce, ainsi qu'une indemnité " +
-  "forfaitaire de 40 € pour frais de recouvrement (art. D.441-5).";
-
-const CONDITIONS_DEFAUT = "Règlement à réception de facture.";
+import { CONDITIONS_DEFAUT, PENALITES_DEFAUT } from "@/lib/documents/legal-mentions";
 
 export async function GET() {
   try {
