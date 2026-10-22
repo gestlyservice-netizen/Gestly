@@ -183,6 +183,11 @@ async function createDevisForMartin() {
 
 beforeEach(() => {
   fakePrisma.reset();
+  // Une seule horloge pour la base simulée et l'application : les règles de
+  // rejeu comparent des dates écrites par les deux (cf. conversation-turn.ts).
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date());
+  fakePrisma.onTick = (time) => vi.setSystemTime(time);
   clearSimulatedOutbox();
   h.pending.length = 0;
   h.extractions.length = 0;
@@ -212,6 +217,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   // Invariant de TOUS les tests : aucun appel réseau réel.
   expect(fetchSpy).not.toHaveBeenCalled();
   if (savedSecret === undefined) delete process.env.WHATSAPP_APP_SECRET;

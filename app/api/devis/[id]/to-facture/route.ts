@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { allocateDocumentNumber } from "@/lib/numbering/document-number";
+
+class DevisAlreadyInvoicedError extends Error {}
 
 export async function POST(
   _req: Request,
@@ -25,35 +28,38 @@ export async function POST(
       );
     }
 
-    // Générer numéro de facture FAC-ANNÉE-XXX
-    const year = new Date().getFullYear();
-    const count = await prisma.facture.count({
-      where: { userId: user.id, number: { startsWith: `FAC-${year}-` } },
-    });
-    const number = `FAC-${year}-${String(count + 1).padStart(3, "0")}`;
-
-    // Créer la facture et mettre à jour le devis dans une transaction
-    const [facture] = await prisma.$transaction([
-      prisma.facture.create({
-        data: {
-          userId:   user.id,
-          clientId: devis.clientId,
-          devisId:  devis.id,
-          number,
-          status:   "emise",
-          totalHT:  devis.totalHT,
-          totalTVA: devis.totalTVA,
-          totalTTC: devis.totalTTC,
-        },
-      }),
-      prisma.devis.update({
-        where: { id: devis.id },
+    // Transaction unique : réclamation du devis, numéro, création.
+    // La réclamation conditionnelle (signé → facturé) garantit qu'un même
+    // devis ne produit jamais deux factures, même sur deux clics simultanés :
+    // un seul des deux voit encore le devis "signe" au moment de l'UPDATE.
+    const facture = await prisma.$transaction(async (tx) => {
+      const claim = await tx.devis.updateMany({
+        where: { id: devis.id, userId: user.id, status: "signe" },
         data: { status: "facture" },
-      }),
-    ]);
+      });
+      if (claim.count !== 1) throw new DevisAlreadyInvoicedError();
+
+      const { number, issuedAt } = await allocateDocumentNumber(tx, "facture", user.id);
+      return tx.facture.create({
+        data: {
+          userId:    user.id,
+          clientId:  devis.clientId,
+          devisId:   devis.id,
+          number,
+          createdAt: issuedAt,
+          status:    "emise",
+          totalHT:   devis.totalHT,
+          totalTVA:  devis.totalTVA,
+          totalTTC:  devis.totalTTC,
+        },
+      });
+    });
 
     return NextResponse.json(facture, { status: 201 });
   } catch (err) {
+    if (err instanceof DevisAlreadyInvoicedError) {
+      return NextResponse.json({ error: "Ce devis a déjà été transformé en facture" }, { status: 409 });
+    }
     console.error("[POST /api/devis/:id/to-facture]", err);
     return NextResponse.json({ error: "Erreur lors de la transformation" }, { status: 500 });
   }

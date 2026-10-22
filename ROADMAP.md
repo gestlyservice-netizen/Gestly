@@ -33,9 +33,10 @@ Légende complémentaire : 🧪 **Logique testée** — tests unitaires simulés
 | 6 | Devis : lien public / lien court | 🟡 | `app/api/devis/[id]/link`, `app/api/public/devis/[id]`, `app/d/[id]/page.tsx` |
 | 7 | Devis : envoi par email | 🟡 | `app/api/devis/[id]/send/route.ts` |
 | 8 | Devis : envoi WhatsApp (template Meta `devis_client`) | 🟡 | `app/api/devis/[id]/whatsapp/route.ts`, bouton dans `app/dashboard/devis/[id]/page.tsx` |
-| 9 | Conversion devis → facture | 🟡 | `app/api/devis/[id]/to-facture/route.ts` |
-| 10 | Factures : création, détail, envoi email | 🟡 | `app/api/factures/`, `app/dashboard/factures/`, `app/api/factures/[id]/send` |
-| 11 | Avoirs (depuis facture) + PDF | 🟡 | `app/api/factures/[id]/avoir`, `app/api/avoirs/[id]/pdf` |
+| 9 | Conversion devis → facture | 🧪 Transaction unique, une seule facture par devis même sur double clic (409) | `app/api/devis/[id]/to-facture/route.ts` |
+| 10 | Factures : création, détail, envoi email | 🧪 Création et numérotation testées (routes réelles, base simulée) ; détail et envoi : 🟡 | `app/api/factures/`, `app/dashboard/factures/`, `app/api/factures/[id]/send` |
+| 11 | Avoirs (depuis facture) + PDF | 🧪 Numérotation et règles de crédit testées (jamais au-delà du facturé, un seul avoir total) ; PDF : 🟡 | `app/api/factures/[id]/avoir`, `app/api/avoirs/[id]/pdf` |
+| 11b | **Numérotation des documents** (devis, factures, avoirs) | 🧪 Module unique `lib/numbering/document-number.ts` : verrou par artisan et par type, plus grand numéro + 1, Paramètres pris en compte, date d'émission postérieure au verrou ; 22 tests unitaires + 16 tests d'intégration. **Unicité NON garantie au niveau PostgreSQL** tant que les migrations proposées ne sont pas appliquées | `lib/numbering/`, `prisma/manual-migrations/20261022_*` |
 | 12 | Génération PDF / pages d'impression | 🧪 PDF serveur (`lib/pdf/generate-document-pdf.ts`) testé réellement avec données fictives (6 tests) ; pagination et montants ≥ 1 000 € corrigés. Pages d'impression HTML (`app/print/`) : 🟡 | `lib/pdf/`, `lib/generate-pdf.ts`, `app/print/` |
 | 13 | Relances automatiques (moteur, réglages, email/SMS, cron) | 🟡 | `lib/relances/`, `app/api/relances/check`, `app/api/settings/relances`, `app/dashboard/parametres/relances` |
 | 14 | Envoi SMS (OVH) + suivi solde admin | 🟡 | `lib/sms/`, `lib/ovh-balance.ts`, `app/api/admin/ovh-balance/`, `app/admin/ovh-balance` |
@@ -83,7 +84,7 @@ Origine : code retrouvé le 2026-10-22 dans la copie de l'ancien PC, sur une bra
 | Garde-fous Claude Code (`.claude/settings.json` + hook) | 🧪 Versionnés, hook actif et testé (62 cas, dont contournements) ; limites documentées |
 | Autres garde-fous de dev (`APP_URL` localhost, SSL Postgres configurable) | 🔴 Non traités |
 | Migrations Prisma versionnées (`prisma/migrations`) | 🔴 ⚠️ Pas de `prisma/migrations` ; seulement des scripts SQL manuels dans `prisma/manual-migrations/` (agent WhatsApp) |
-| Framework de tests | 🟢 Vitest 2.1.9 installé, **21 fichiers / 270 tests réussis** (2026-10-22, branche `test/whatsapp-flow`), dont 42 tests d'intégration du parcours WhatsApp sur une base Prisma en mémoire (`tests/support/fake-prisma.ts`). Couverture limitée à l'agent WhatsApp, à `lib/ai/usage` et à `lib/notifications` ; le reste de l'application (devis, factures, relances, Stripe…) n'a **aucun test**. Playwright : 🔴 |
+| Framework de tests | 🟢 Vitest 2.1.9 installé, **22 fichiers / 300 tests réussis** (2026-10-22, branche `test/whatsapp-flow`), dont 42 tests d'intégration WhatsApp et 16 tests d'intégration des documents, sur une base Prisma en mémoire avec verrous réellement bloquants (`tests/support/fake-prisma.ts`). Couverture limitée à l'agent WhatsApp, à `lib/ai/usage` et à `lib/notifications` ; le reste de l'application (devis, factures, relances, Stripe…) n'a **aucun test**. Playwright : 🔴 |
 | Scripts npm `typecheck` / `test` / `check` | 🟡 `test` (`vitest run`) présent ; `typecheck` et `check` : 🔴 |
 | CI GitHub Actions (lint, typecheck, tests, build) | 🔴 |
 | `.claude/` versionné (settings, hooks, sous-agents) | 🔴 ⚠️ `.claude/` est actuellement ignoré par `.gitignore` |
@@ -95,8 +96,8 @@ Décision : la base Supabase actuelle (données fictives) sert au développement
 1. ~~**P0 — Mode simulation des envois**~~ 🧪 Fait (2026-10-22) : `lib/outbound/`, tous les chemins WhatsApp, SMS, email et IA couverts, diagnostics de mauvaise configuration, correction Resend. Fusionné dans `chore/claude-setup` (voir `PROGRESS.md`, Mission 8). Non vérifié en exécution réelle (`npm run dev` non lancé).
 2. ~~**P0 — `.claude/settings.json` versionné**~~ 🧪 Fait : règles `deny`/`ask`, hook `PreToolUse` (`.claude/hooks/guard.mjs`, 62 tests), `.gitignore` corrigé. Limites documentées dans `CLAUDE.md`.
 3. **P0 — Sécurité** : révoquer le token GitHub exposé ; rotation des clés éventuellement présentes dans l'ancien `.env` de l'historique Git ; corriger l'avis Supabase `rls_auto_enable` (SECURITY DEFINER exécutable par `anon`).
-4. **P1 — Tests manquants** : ~~webhook WhatsApp, `job-queue`, `confirm-creation`, `createDevis`, `createClient`, numérotation des devis~~ (faits, 2026-10-22) ; restent : webhook Stripe, moteur de relances (hors e-mail), numérotation des factures et avoirs, tests contre les vraies API.
-   - **Décision utilisateur en attente** : index unique `(userId, number)` sur `Devis`, qui exige une migration (proposition dans `PROGRESS.md`, Mission 10).
+4. **P1 — Tests manquants** : ~~webhook WhatsApp, `job-queue`, `confirm-creation`, `createDevis`, `createClient`, numérotation des devis, factures et avoirs~~ (faits, 2026-10-22) ; restent : webhook Stripe, moteur de relances (hors e-mail), tests contre les vraies API.
+   - **Décisions utilisateur en attente** (détail dans `PROGRESS.md`, Mission 11) : application des migrations `20261022_unique_document_numbers` (index uniques) et `20261022_restrict_accounting_document_deletion` (suppression en cascade des factures interdite en base) ; règles métier de numérotation D1 à D6.
 5. **P1 — Dépendances** : correctifs semver, `shadcn` en dev, puis migration Next 15.5.
 6. **P1 — CI GitHub Actions** : lint, typecheck, tests, build isolé.
 7. **P2 — Recette** : parcours complets en local avec services simulés, puis tests réels contrôlés (Stripe test, un numéro WhatsApp de test, un SMS) après accord.

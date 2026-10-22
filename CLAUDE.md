@@ -188,6 +188,7 @@ Il n'existe **pas** de dossier `prisma/migrations` : le schéma n'est pas versio
 - **Crons** : protégés par le secret `CRON_SECRET` (en-tête `Authorization`). Ne jamais retirer ce contrôle.
 - **Erreurs API** : `try/catch`, `console.error("[METHOD /api/chemin]", err)`, réponse JSON `{ error: "message en français" }` avec le bon code HTTP. Ne jamais renvoyer de secret ni de stack trace au client.
 - **Appels coûteux** (IA, SMS, WhatsApp, emails) : vérifier la configuration, limiter le débit (`isRateLimited`), et ne jamais les déclencher depuis une boucle non bornée.
+- **Numérotation des documents** (devis, factures, avoirs) : toujours `allocateDocumentNumber(tx, type, userId)` (`lib/numbering/document-number.ts`), **dans la transaction** qui crée le document, avec `createdAt: issuedAt`. Jamais de `count + 1` ni de numéro calculé ailleurs. Une facture émise ne se modifie ni ne se supprime : elle se corrige par un avoir.
 - **Imports** : alias `@/…` (racine du projet).
 - **Commits** : Conventional Commits en français (`feat: …`, `fix: …`, `chore: …`, `ci: …`), un sujet par commit.
 - Respecter le style du code environnant (densité de commentaires, nommage français/anglais existant).

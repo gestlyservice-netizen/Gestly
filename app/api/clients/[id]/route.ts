@@ -93,6 +93,21 @@ export async function DELETE(
       return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
     }
 
+    // Le schéma supprime en cascade les factures et avoirs d'un client
+    // supprimé : des documents comptables émis (à conserver légalement) et
+    // dont les numéros redeviendraient disponibles. Interdit tant que le
+    // client en possède. (Les devis restent supprimés avec le client.)
+    const [factures, avoirs] = await Promise.all([
+      prisma.facture.count({ where: { clientId: params.id, userId: user.id } }),
+      prisma.avoir.count({ where: { clientId: params.id, userId: user.id } }),
+    ]);
+    if (factures > 0 || avoirs > 0) {
+      return NextResponse.json(
+        { error: "Ce client a des factures ou des avoirs : il ne peut pas être supprimé (conservation obligatoire des documents comptables)." },
+        { status: 409 }
+      );
+    }
+
     await prisma.client.delete({ where: { id: params.id } });
 
     return NextResponse.json({ success: true });

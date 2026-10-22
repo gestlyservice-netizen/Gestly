@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { allocateDocumentNumber } from "@/lib/numbering/document-number";
 
 // Un avoir corrige une facture SANS jamais la modifier ni la supprimer —
 // seule voie légale de correction d'une facture déjà émise en France.
@@ -84,27 +85,54 @@ export async function POST(
   const totalTVA = lines.reduce((s, l) => s + (l.totalHT * l.tvaRate) / 100, 0);
   const totalTTC = totalHT + totalTVA;
 
-  const year = new Date().getFullYear();
-  const count = await prisma.avoir.count({
-    where: { userId: user.id, number: { startsWith: `AV-${year}-` } },
-  });
-  const number = `AV-${year}-${String(count + 1).padStart(3, "0")}`;
+  // Une seule transaction : numéro (sous verrou par artisan, ce qui
+  // sérialise aussi les avoirs concurrents sur une même facture), contrôle
+  // du montant déjà crédité, création. En cas de refus, rien n'est créé et
+  // aucun numéro n'est consommé.
+  try {
+    const avoir = await prisma.$transaction(async (tx) => {
+      const { number, issuedAt } = await allocateDocumentNumber(tx, "avoir", user.id);
 
-  const avoir = await prisma.avoir.create({
-    data: {
-      userId: user.id,
-      factureId: facture.id,
-      clientId: facture.clientId,
-      number,
-      type: avoirType,
-      reason: reason.trim(),
-      totalHT,
-      totalTVA,
-      totalTTC,
-      lines: { create: lines },
-    },
-    include: { lines: true },
-  });
+      const previous = await tx.avoir.findMany({ where: { factureId: facture.id, userId: user.id }, select: { totalTTC: true } });
+      const alreadyCredited = previous.reduce((s, a) => s + a.totalTTC, 0);
+      const remaining = facture.totalTTC - alreadyCredited;
+      if (avoirType === "total" && previous.length > 0) {
+        throw new AvoirRuleError(
+          "Cette facture a déjà fait l'objet d'un avoir : créez un avoir partiel pour le solde restant."
+        );
+      }
+      if (totalTTC > remaining + CENT_TOLERANCE) {
+        throw new AvoirRuleError(
+          `Le montant de l'avoir (${totalTTC.toFixed(2)} € TTC) dépasse le montant restant à créditer sur la facture (${Math.max(0, remaining).toFixed(2)} € TTC).`
+        );
+      }
 
-  return NextResponse.json(avoir, { status: 201 });
+      return tx.avoir.create({
+        data: {
+          userId: user.id,
+          factureId: facture.id,
+          clientId: facture.clientId,
+          number,
+          createdAt: issuedAt,
+          type: avoirType,
+          reason: reason.trim(),
+          totalHT,
+          totalTVA,
+          totalTTC,
+          lines: { create: lines },
+        },
+        include: { lines: true },
+      });
+    });
+    return NextResponse.json(avoir, { status: 201 });
+  } catch (err) {
+    if (err instanceof AvoirRuleError) return NextResponse.json({ error: err.message }, { status: 409 });
+    throw err;
+  }
 }
+
+// Un avoir ne peut jamais créditer plus que ce qui a été facturé (somme
+// des avoirs ≤ total TTC de la facture), à l'arrondi du centime près.
+const CENT_TOLERANCE = 0.005;
+
+class AvoirRuleError extends Error {}

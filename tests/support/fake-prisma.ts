@@ -47,7 +47,29 @@ const MODELS: Record<string, ModelDef> = {
     },
   },
   devisLine: { defaults: () => ({ tvaRate: 20 }), unique: [] },
-  settings: { defaults: () => ({}), unique: [["userId"]] },
+  facture: {
+    defaults: () => ({ devisId: null, status: "emise", notes: null, dueDate: null, paidAt: null, sentAt: null }),
+    unique: [],
+    relations: {
+      client: { model: "client", localKey: "clientId", foreignKey: "id" },
+      lines: { model: "factureLine", localKey: "id", foreignKey: "factureId", many: true },
+      avoirs: { model: "avoir", localKey: "id", foreignKey: "factureId", many: true },
+      devis: { model: "devis", localKey: "devisId", foreignKey: "id" },
+    },
+  },
+  factureLine: { defaults: () => ({ tvaRate: 20 }), unique: [] },
+  avoir: {
+    defaults: () => ({ type: "total" }),
+    unique: [],
+    relations: { lines: { model: "avoirLine", localKey: "id", foreignKey: "avoirId", many: true } },
+  },
+  avoirLine: { defaults: () => ({ tvaRate: 20 }), unique: [] },
+  settings: {
+    // Valeurs par défaut du schéma (prisma/schema.prisma, model Settings).
+    defaults: () => ({ companyName: "", couleurPrincipale: "#2563EB", prefixeDevis: "DEV-", prefixeFacture: "FAC-", prochainNumeroDevis: 1, prochainNumeroFacture: 1, reservePropriete: false }),
+    unique: [["userId"]],
+    updatedAt: true,
+  },
   whatsappConversation: {
     defaults: () => ({ userId: null, state: "idle", pendingDevis: null, optedOut: false, lastCreatedDevisId: null }),
     unique: [],
@@ -173,12 +195,21 @@ export class FakePrisma {
     this.failures = [];
     this.calls.length = 0;
     this.advisoryLocks.length = 0;
+    this.heldLocks.clear();
+    this.locksDisabled = false;
+    this.onTick = null;
   }
 
   // Horloge strictement croissante (deux écritures n'ont jamais le même
-  // horodatage), alignée sur l'heure réelle.
+  // horodatage), alignée sur l'heure réelle. Si `onTick` est défini (tests
+  // utilisant vi.useFakeTimers sur Date), l'heure système suit cette
+  // horloge : les dates produites par l'application (`new Date()`) et par la
+  // base restent sur UNE seule horloge, sans que la base prenne de l'avance.
+  onTick: ((time: number) => void) | null = null;
+
   now(): Date {
     this.lastTime = Math.max(Date.now(), this.lastTime + 1);
+    this.onTick?.(this.lastTime);
     return new Date(this.lastTime);
   }
 
@@ -201,31 +232,70 @@ export class FakePrisma {
   // Verrous consultatifs demandés via $queryRaw (pg_advisory_xact_lock),
   // avec l'état "dans une transaction ou non" au moment de la demande.
   readonly advisoryLocks: { key: unknown; inTransaction: boolean }[] = [];
-  private transactionDepth = 0;
+  // Verrous actuellement tenus : comme PostgreSQL, une transaction qui
+  // demande un verrou tenu par une AUTRE transaction attend sa libération
+  // (fin de la transaction détentrice). Permet de tester de vraies
+  // créations simultanées (Promise.all) : sans verrou, elles liraient le
+  // même « dernier numéro ».
+  private heldLocks = new Map<unknown, { owner: object; released: Promise<void>; release: () => void }>();
+  // Désactive les verrous (test de mutation : prouver qu'ils sont nécessaires).
+  locksDisabled = false;
 
-  async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
-    const snapshot = clone(this.store);
-    this.transactionDepth++;
+  async $transaction<T>(fnOrBatch: ((tx: unknown) => Promise<T>) | Promise<unknown>[]): Promise<T> {
+    if (Array.isArray(fnOrBatch)) {
+      // Forme « tableau » : opérations déjà lancées, attendues dans l'ordre.
+      const results: unknown[] = [];
+      for (const op of fnOrBatch) results.push(await op);
+      return results as T;
+    }
+    // Annulation par JOURNAL : seules les écritures de CETTE transaction sont
+    // défaites (comme PostgreSQL), jamais celles d'une transaction
+    // concurrente déjà validée.
+    const journal: (() => void)[] = [];
+    const owner = {};
     try {
       // Comme Prisma : le client de transaction n'a pas de $transaction.
       const tx = Object.fromEntries([
-        ...Object.keys(MODELS).map((m) => [m, this.delegates[m]]),
-        ["$queryRaw", this.$queryRaw.bind(this)],
+        ...Object.keys(MODELS).map((m) => [m, this.makeDelegate(m, journal)]),
+        ["$queryRaw", (strings: TemplateStringsArray, ...values: unknown[]) => this.rawQuery(owner, strings, values)],
       ]);
-      return await fn(tx);
+      return await fnOrBatch(tx);
     } catch (err) {
-      this.store = snapshot; // annulation complète, comme une vraie transaction
+      for (const undo of journal.reverse()) undo();
       throw err;
     } finally {
-      this.transactionDepth--;
+      for (const [key, lock] of Array.from(this.heldLocks)) {
+        if (lock.owner === owner) {
+          this.heldLocks.delete(key);
+          lock.release();
+        }
+      }
     }
   }
 
   async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> {
+    return this.rawQuery(null, strings, values);
+  }
+
+  private async rawQuery(owner: object | null, strings: TemplateStringsArray, values: unknown[]): Promise<unknown[]> {
     const sql = strings.join("?");
     this.calls.push({ op: "$queryRaw", args: { sql, values } });
     if (/pg_advisory_xact_lock/.test(sql)) {
-      this.advisoryLocks.push({ key: values[0], inTransaction: this.transactionDepth > 0 });
+      const key = values[0];
+      this.advisoryLocks.push({ key, inTransaction: owner !== null });
+      // Hors transaction, un verrou "xact" est relâché immédiatement : sans effet.
+      if (owner && !this.locksDisabled) {
+        let held = this.heldLocks.get(key);
+        while (held && held.owner !== owner) {
+          await held.released;
+          held = this.heldLocks.get(key);
+        }
+        if (!held) {
+          let release!: () => void;
+          const released = new Promise<void>((r) => (release = r));
+          this.heldLocks.set(key, { owner, released, release });
+        }
+      }
       return [{ locked: 1 }];
     }
     throw new Error(`fake-prisma : requête SQL brute non gérée : ${sql}`);
@@ -308,7 +378,19 @@ export class FakePrisma {
     });
   }
 
-  private makeDelegate(model: string) {
+  private removeById(model: string, id: unknown): void {
+    this.store[model] = this.store[model].filter((r) => r.id !== id);
+  }
+
+  private restoreRow(model: string, previous: Row): void {
+    const idx = this.store[model].findIndex((r) => r.id === previous.id);
+    if (idx >= 0) this.store[model][idx] = previous;
+    else this.store[model].push(previous);
+  }
+
+  // `journal` : présent pour les délégués d'une transaction ; chaque écriture
+  // y inscrit son opération inverse.
+  private makeDelegate(model: string, journal?: (() => void)[]) {
     const find = (where: Record<string, unknown> | undefined) => this.store[model].filter((r) => matches(r, where));
     return {
       findUnique: async (args: Record<string, unknown> = {}) => {
@@ -343,6 +425,7 @@ export class FakePrisma {
         const row = this.buildRow(model, data);
         this.checkUnique(model, row);
         this.store[model].push(row);
+        journal?.push(() => this.removeById(model, row.id));
         // Écritures imbriquées (ex. Devis.lines.create).
         for (const [rel, r] of Object.entries(MODELS[model].relations ?? {})) {
           const nested = data[rel] as { create?: Row | Row[] } | undefined;
@@ -350,6 +433,7 @@ export class FakePrisma {
           for (const child of Array.isArray(nested.create) ? nested.create : [nested.create]) {
             const childRow = this.buildRow(r.model, { ...child, [r.foreignKey]: row[r.localKey] });
             this.store[r.model].push(childRow);
+            journal?.push(() => this.removeById(r.model, childRow.id));
           }
         }
         return this.shape(model, row, args);
@@ -358,20 +442,47 @@ export class FakePrisma {
         this.maybeFail(`${model}.update`, args);
         const idx = this.store[model].findIndex((r) => matches(r, args.where as Row));
         if (idx < 0) throw p2025(model);
-        const next = this.applyData(model, this.store[model][idx], args.data as Row);
+        const previous = this.store[model][idx];
+        const next = this.applyData(model, previous, args.data as Row);
         this.checkUnique(model, next, next.id);
         this.store[model][idx] = next;
+        journal?.push(() => this.restoreRow(model, previous));
         return this.shape(model, next, args);
+      },
+      upsert: async (args: Record<string, unknown> = {}) => {
+        this.maybeFail(`${model}.upsert`, args);
+        const idx = this.store[model].findIndex((r) => matches(r, args.where as Row));
+        if (idx < 0) {
+          const row = this.buildRow(model, args.create as Row);
+          this.checkUnique(model, row);
+          this.store[model].push(row);
+          journal?.push(() => this.removeById(model, row.id));
+          return this.shape(model, row, args);
+        }
+        const previous = this.store[model][idx];
+        const next = this.applyData(model, previous, args.update as Row);
+        this.store[model][idx] = next;
+        journal?.push(() => this.restoreRow(model, previous));
+        return this.shape(model, next, args);
+      },
+      delete: async (args: Record<string, unknown> = {}) => {
+        this.maybeFail(`${model}.delete`, args);
+        const idx = this.store[model].findIndex((r) => matches(r, args.where as Row));
+        if (idx < 0) throw p2025(model);
+        const [removed] = this.store[model].splice(idx, 1);
+        journal?.push(() => this.restoreRow(model, removed));
+        return clone(removed); // NB : pas de suppression en cascade simulée
       },
       updateMany: async (args: Record<string, unknown> = {}) => {
         this.maybeFail(`${model}.updateMany`, args);
-        let count = 0;
+        const previous: Row[] = [];
         this.store[model] = this.store[model].map((r) => {
           if (!matches(r, args.where as Row)) return r;
-          count++;
+          previous.push(r);
           return this.applyData(model, r, args.data as Row);
         });
-        return { count };
+        for (const p of previous) journal?.push(() => this.restoreRow(model, p));
+        return { count: previous.length };
       },
     };
   }

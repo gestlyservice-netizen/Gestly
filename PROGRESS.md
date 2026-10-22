@@ -4,6 +4,72 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-22 — Mission 11 : numérotation fiable des devis, factures et avoirs
+
+Branche : `test/whatsapp-flow`. Aucune migration exécutée, aucune donnée Supabase modifiée (une seule requête en lecture seule, agrégats uniquement), aucun appel externe, aucun push, garde-fous inchangés.
+
+### Étape 1
+Modifications de la Mission 10 relues, scan anti-secrets négatif, commit `39aa80e`.
+
+### Étape 2 — Analyse des chemins
+
+| Document | Création | Duplication / validation | Suppression |
+|---|---|---|---|
+| Devis | `POST /api/devis` (`createDevis`), agent WhatsApp (`createDevis` dans la transaction de `confirmDevisCreation`) | `POST /api/devis/[id]/duplicate` | `DELETE /api/devis/[id]` ; suppression en cascade avec le client |
+| Facture | `POST /api/factures`, `POST /api/devis/[id]/to-facture` | Aucune modification d'une facture émise (seul `mark_paid`) ; correction uniquement par avoir | Pas de route ; **mais cascade lors de la suppression du client** (FK `CASCADE`, vérifié en base) |
+| Avoir | `POST /api/factures/[id]/avoir` | — | Cascade avec le client ou la facture |
+| Paramètres | `POST /api/settings` (upsert de `prefixeDevis`, `prefixeFacture`, `prochainNumeroDevis`, `prochainNumeroFacture`) | Aperçu de l'interface : « {préfixe}001 » | — |
+
+Défauts constatés : `count + 1` dans la création de factures, `to-facture` et les avoirs (doublons en cas de création simultanée ; réutilisation après suppression) ; « plus grand + 1 » seul (Mission 10) qui réattribue le numéro du **dernier** document supprimé ; date de création issue du début de transaction (`CURRENT_TIMESTAMP`), qui peut contredire l'ordre des numéros après une attente de verrou ; paramètres jamais lus ; double facturation possible d'un même devis ; avoirs sans plafond ; suppression d'un client qui efface ses factures.
+
+### Bugs corrigés (preuve : 8 tests échouent sur le code d'origine restauré temporairement, puis passent)
+
+1. **Numérotation unifiée** (`lib/numbering/document-number.ts`, remplace `lib/devis/numbering.ts`), utilisée par les 6 chemins de création (devis web et WhatsApp, duplication, facture web, `to-facture`, avoir). Verrou consultatif par (artisan, type), séquence = max(plus grand + 1, « Prochain n° »), **date d'émission fixée après le verrou** (chronologie respectée).
+2. **Paramètres pris en compte** sans changer leur sens affiché (« {préfixe}001 ») : préfixe personnalisé → `préfixe + NNN`, « Prochain n° » comme numéro de départ, avancé après chaque document (paramètre exact ; aucun numéro réattribué même si le dernier document est supprimé). Préfixe par défaut ou absence de paramètres → format historique `DEV-AAAA-NNN` / `FAC-AAAA-NNN`, **inchangé**.
+3. **Double facturation d'un devis** (`to-facture`) : réclamation conditionnelle `signe → facture` dans la transaction. Un double clic simultané produit une facture, et le second appel reçoit 409.
+4. **Avoirs** (`factures/[id]/avoir`) : jamais au-delà du montant TTC facturé (tolérance d'un demi-centime) ; un avoir « total » refusé si la facture a déjà un avoir ; contrôle et numéro dans la même transaction sous verrou (deux avoirs simultanés ne peuvent pas dépasser ensemble). Refus → 409, aucun numéro consommé.
+5. **Suppression d'un client qui a des factures ou avoirs** (`clients/[id]`) : refusée (409) au lieu d'effacer en cascade des documents comptables et de libérer leurs numéros.
+
+### Tests ajoutés
+
+- `lib/numbering/document-number.test.ts` (22) : signification des paramètres, séries historiques par type, année suivante, préfixes personnalisés, « Prochain n° » (départ, avancement, valeur inférieure ignorée, valeur aberrante), suppression du dernier document, isolation, compteurs indépendants par type, **créations simultanées** (10 en parallèle : numéros uniques et consécutifs, dates non décroissantes ; **contrôle : sans verrou, doublons constatés**), échec puis reprise (rien d'émis, compteur inchangé, verrou libéré).
+- `tests/documents-numbering.integration.test.ts` (16), sur les routes réelles : factures simultanées, Paramètres → facture « FA-2026-042 » puis paramètre à 43, échec 500 puis reprise, isolation ; `to-facture` (double clic, série partagée, devis non signé) ; avoirs (total, partiels plafonnés, simultanés, factures multiples, isolation) ; suppression de client (refusée / autorisée) ; devis web + WhatsApp + duplication sur une même série personnalisée (DV-010, 011, 012, paramètre à 13).
+- Base en mémoire (`tests/support/fake-prisma.ts`) : modèles facture et avoir, verrous consultatifs **réellement bloquants** entre transactions concurrentes, annulation par journal (seules les écritures de la transaction échouée sont défaites), `upsert`, `delete`, transactions en tableau, horloge partagée optionnelle avec l'application.
+- Effet de bord corrigé dans les tests WhatsApp : la date d'émission étant désormais fixée par l'application, ces tests utilisent une horloge unique (base simulée et application) ; sans cela, l'horloge simulée prenait quelques millisecondes d'avance (artefact du simulateur, pas du code).
+
+### Vérification en lecture seule de la base (agrégats, aucune donnée personnelle)
+Devis : 8, **0 doublon**, 8/8 au format historique. Factures : 5, **0 doublon**, 5/5 au format historique. Avoirs : 0. Paramètres : 1 ligne, aucun préfixe ni « Prochain n° » personnalisé (aucun changement de numérotation pour cet utilisateur). Clés `Facture_clientId_fkey`, `Avoir_clientId_fkey` et `Avoir_factureId_fkey` : **CASCADE**.
+
+### Migrations proposées (préparées, NON exécutées)
+- `prisma/manual-migrations/20261022_document_numbers_precheck.sql` : contrôle préalable en lecture seule.
+- `20261022_unique_document_numbers_up/down.sql` : index uniques `(userId, number)` sur `Devis`, `Facture` et `Avoir`. Prérequis vérifié : aucun doublon.
+- `20261022_restrict_accounting_document_deletion_up/down.sql` : `ON DELETE RESTRICT` pour `Facture.client`, `Avoir.client` et `Avoir.facture`. La règle `ON UPDATE` actuelle est à confirmer par le contrôle préalable.
+- Après application : `@@unique([userId, number])` et `onDelete: Restrict` dans `schema.prisma`, puis `prisma generate` (jamais `db push`).
+- **La numérotation n'est pas garantie au niveau PostgreSQL** tant que ces migrations ne sont pas appliquées et validées.
+
+### Décisions métier nécessaires
+- **D1** — Préfixe par défaut : format annuel historique conservé et « Prochain n° » ignoré (il ne peut pas suivre la remise à zéro annuelle). Alternative : appliquer littéralement l'aperçu (« DEV-001 », numérotation continue sans année).
+- **D2** — Préfixe personnalisé : série **continue** (aucune remise à zéro annuelle automatique). Pour repartir à 1 avec un nouveau préfixe (ex. « F2027- »), l'utilisateur doit aussi remettre « Prochain n° » à 1. Sinon la numérotation continue (F2027-153…).
+- **D3** — Avoirs : série dédiée `AV-AAAA-NNN`, sans paramètre (aucun champ prévu). Faut-il un préfixe d'avoir, ou les numéroter dans la série des factures ?
+- **D4** — Devis en série historique : supprimer le **dernier** devis permet de réattribuer son numéro (pas de compteur persistant sans paramètres). Options : interdire la suppression des devis envoyés, ou créer systématiquement une ligne de paramètres.
+- **D5** — Suppression d'un compte Gestly : factures et avoirs restent supprimés en cascade (durée de conservation légale ?).
+- **D6** — Une facture n'a ni statut « annulée » ni brouillon : une facture est émise et numérotée dès sa création, et seule l'émission d'un avoir l'annule. À confirmer (pas de facture brouillon non numérotée).
+
+### Résultats
+| Vérification | Résultat |
+|---|---|
+| `tsc --noEmit` | ✅ code 0 |
+| `npm run lint` | ✅ aucune erreur ni avertissement |
+| `npm test -- --run` | ✅ **22 fichiers, 300 tests réussis, 0 échec** (+30) |
+| Build isolé | ✅ code 0, 45 pages |
+
+### Limites
+- Verrous et transactions vérifiés sur la base simulée (verrous bloquants), **pas contre un vrai PostgreSQL concurrent**.
+- La date d'émission vient de l'horloge du serveur applicatif : avec plusieurs instances, l'ordre dépend de leur synchronisation (NTP, écart de l'ordre de la milliseconde).
+- Interface non modifiée : l'aperçu « {préfixe}001 » de la page Paramètres n'affiche ni « Prochain n° », ni la règle D1.
+
+---
+
 ## 2026-10-22 — Mission 10 : défauts métier restants et couverture complète de l'agent WhatsApp
 
 Branche : `test/whatsapp-flow`. Aucune API réelle (Meta, OpenAI, Resend, Stripe, OVH), aucune migration, aucune donnée Supabase, aucune clé modifiée, aucun garde-fou désactivé, aucun push.

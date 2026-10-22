@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { allocateDocumentNumber } from "@/lib/numbering/document-number";
 
 export async function GET() {
   try {
@@ -49,13 +50,6 @@ export async function POST(request: Request) {
     const client = await prisma.client.findFirst({ where: { id: clientId, userId: user.id } });
     if (!client) return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
 
-    // Générer le numéro : FAC-ANNÉE-XXX
-    const year = new Date().getFullYear();
-    const count = await prisma.facture.count({
-      where: { userId: user.id, number: { startsWith: `FAC-${year}-` } },
-    });
-    const number = `FAC-${year}-${String(count + 1).padStart(3, "0")}`;
-
     // Calculer les lignes et totaux
     const computedLines = (lines as Record<string, unknown>[]).map((l) => {
       const qty   = Number(l.quantity)    || 0;
@@ -74,11 +68,17 @@ export async function POST(request: Request) {
     const totalTVA = computedLines.reduce((s, l) => s + l.totalHT * l.tvaRate / 100, 0);
     const totalTTC = totalHT + totalTVA;
 
-    const facture = await prisma.facture.create({
+    // Numéro attribué sous verrou dans la transaction de création
+    // (lib/numbering/document-number.ts) : unique, jamais réutilisé, et
+    // date d'émission cohérente avec l'ordre des numéros.
+    const facture = await prisma.$transaction(async (tx) => {
+      const { number, issuedAt } = await allocateDocumentNumber(tx, "facture", user.id);
+      return tx.facture.create({
       data: {
         userId:   user.id,
         clientId,
         number,
+        createdAt: issuedAt,
         status:   "emise",
         totalHT,
         totalTVA,
@@ -88,6 +88,7 @@ export async function POST(request: Request) {
         lines:    { create: computedLines },
       },
       include: { client: true, lines: true },
+      });
     });
 
     return NextResponse.json(facture, { status: 201 });
