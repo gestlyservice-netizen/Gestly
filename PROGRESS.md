@@ -4,6 +4,16 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-27 — Mission 22 : déploiement de la bêta privée, C2, plan de recette
+
+- Fusion en avance rapide préparée par Claude (`main` = `e529cfd`), push par l'utilisateur. Vercel : `dpl_EnZcY9BYN722iwD5gA5h6dCaQRGb`, Production, **Ready**, build 2 min 2 s, alias `www.gestly.fr` et `www.digiteo-gestly.com`.
+- `/api/health` contrôlé par l'utilisateur : ok=true, database=connected, clerk=loaded, NODE_ENV=production, outbound=`mode=simulate`.
+- C2 (`apply-migrations.ps1 -RefreezeOnly`), autorisé par l'utilisateur : sauvegarde 20261022-220318 vérifiée (RESTORE-VERIFIED, SHA256 5/5 OK) ; cible contrôlée sans affichage (pooler Supabase, projet `ixaxfhitplhynhpihojx`) ; résultat `INSERT 0 0`, postcheck OK (0 facture sans ligne propre ; 8 devis, 5 factures, 9 lignes figées, 0 avoir), code 0. Journal : `~/gestly-backups/migration-20261027-202635/journal.txt`.
+- Plan de recette complet : `docs/recette-v1.md` (9 blocs, 2 comptes, isolement, fin d'abonnement, mobile).
+- Prochaine action : recette par l'utilisateur sur `www.gestly.fr`, puis ouverture aux bêta-testeurs.
+
+---
+
 ## 2026-10-27 — Mission 21 : configuration Vercel Production (bêta privée)
 
 - Garde-fou v3 installé par l'utilisateur (`install.ps1`), CLI Vercel 65.4.0 connectée et liée (`gestlyservice-netizens-projects/gestly`). MCP Vercel enregistré pour ce projet (portée locale), authentification non faite. Aucun plugin installé.
