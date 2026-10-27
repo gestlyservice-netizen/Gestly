@@ -8,6 +8,11 @@ import { isRateLimited } from "@/lib/rate-limit";
 // client. Désactivée tant qu'aucun fournisseur IA n'est configuré (voir
 // GET ci-dessous, utilisé par l'UI pour masquer le bouton le cas échéant).
 export async function GET() {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
   return NextResponse.json({ configured: isAiConfigured() });
 }
 

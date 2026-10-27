@@ -5,6 +5,9 @@ import { prisma } from "@/lib/prisma";
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
 
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");

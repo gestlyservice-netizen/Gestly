@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { enableArtisanBotForUser } from "@/lib/whatsapp/artisan-optout";
 
 // Affordance minimale pour une réactivation de l'assistant WhatsApp depuis
@@ -10,6 +10,9 @@ import { enableArtisanBotForUser } from "@/lib/whatsapp/artisan-optout";
 export async function POST() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
 
   const reactivated = await enableArtisanBotForUser(user.id);
   return NextResponse.json({ reactivated });
