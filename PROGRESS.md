@@ -11,6 +11,7 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 - La valeur d'`OUTBOUND_MODE` n'est pas relisible (chiffrée) : preuve attendue après déploiement, `/api/health` → `checks.outbound = mode=simulate`. Elle ne s'applique qu'au prochain déploiement.
 - Dernier déploiement Production : il y a 98 jours (= `origin/main` du 2026-07-22) ; les 39 commits de la branche ne sont pas en ligne.
 - Non vérifiable sans lire les valeurs : mode test ou live de Stripe, instance Clerk, projet Supabase visé par `DATABASE_URL` (contrôle par `/api/health` après déploiement).
+- Préparation du déploiement : `origin/main` ancêtre de la branche (avance rapide, 41 commits) ; code applicatif inchangé depuis le build isolé vérifié (`d21d274`, seul `.gitignore` a changé) ; tsc 0, lint propre, 25 fichiers / 503 tests ; Supabase (lecture) : 0 facture depuis les migrations, dernière facture 2026-04-17, compteur présent → RefreezeOnly sans effet attendu. En attente : contrôle du mode Stripe par l'utilisateur, puis push.
 - `vercel link` a écrit un `VERCEL_OIDC_TOKEN` dans `.env.local` et ajouté `.env*` à `.gitignore` (exception `!.env.example` ajoutée, `64fcbd0`) ; l'utilisateur doit retirer la ligne du jeton.
 
 ---
