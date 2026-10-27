@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { devisPublicLink } from "@/lib/url";
-import { isOutboundSimulated, recordSimulatedOutbound, simulatedId } from "@/lib/outbound/mode";
+import { isOutboundDisabled, isOutboundSimulated, OUTBOUND_DISABLED_MESSAGE, recordSimulatedOutbound, simulatedId } from "@/lib/outbound/mode";
 import { normalizePhoneE164 } from "@/lib/phone";
 
 export async function POST(
@@ -15,6 +15,8 @@ export async function POST(
     if (isSubscriptionBlocked(user)) {
       return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
     }
+    // Bêta privée : refus explicite plutôt qu'un « envoyé » simulé.
+    if (isOutboundDisabled()) return NextResponse.json({ error: OUTBOUND_DISABLED_MESSAGE }, { status: 503 });
 
     const WA_TOKEN    = process.env.WHATSAPP_TOKEN;
     const WA_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;

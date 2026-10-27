@@ -139,6 +139,37 @@ const facture = {
 const req = (body?: unknown) =>
   new Request("http://localhost/x", { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 
+describe("bêta privée (OUTBOUND_MODE=simulate en production)", () => {
+  beforeEach(() => {
+    process.env.OUTBOUND_MODE = "simulate";
+    process.env.VERCEL_ENV = "production";
+    mocks.getCurrentUser.mockResolvedValue(user);
+    mocks.prisma.devis.findFirst.mockResolvedValue(devis);
+    mocks.prisma.facture.findFirst.mockResolvedValue(facture);
+  });
+
+  it("[régression] devis : refus explicite (503), jamais « envoyé par email » sans envoi", async () => {
+    const res = await sendDevis(req(), { params: { id: "devis_1" } });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toMatch(/Bêta privée/);
+    expect(mocks.prisma.devis.update).not.toHaveBeenCalled();
+    expect(getSimulatedOutbox()).toHaveLength(0);
+  });
+
+  it("[régression] facture : refus explicite (503), non marquée envoyée", async () => {
+    const res = await sendFacture(req({ to: "client@example.com" }), { params: { id: "fac_1" } });
+    expect(res.status).toBe(503);
+    expect(mocks.prisma.facture.update).not.toHaveBeenCalled();
+  });
+
+  it("[régression] relances : aucune relance simulée ni enregistrée", async () => {
+    const summary = await runRelancesCheck();
+    expect(summary.sent).toBe(0);
+    expect(mocks.prisma.relanceSettings.findMany).not.toHaveBeenCalled();
+    expect(mocks.prisma.relance.upsert).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST /api/devis/[id]/send", () => {
   beforeEach(() => {
     mocks.getCurrentUser.mockResolvedValue(user);

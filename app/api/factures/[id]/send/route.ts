@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendEmail } from "@/lib/outbound/email";
+import { isOutboundDisabled, OUTBOUND_DISABLED_MESSAGE } from "@/lib/outbound/mode";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateDocumentPdfBuffer } from "@/lib/pdf/generate-document-pdf";
@@ -16,6 +17,8 @@ export async function POST(
   if (isSubscriptionBlocked(user)) {
     return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
   }
+  // Bêta privée : refus explicite, la facture n'est pas marquée envoyée.
+  if (isOutboundDisabled()) return NextResponse.json({ error: OUTBOUND_DISABLED_MESSAGE }, { status: 503 });
 
   const facture = await prisma.facture.findFirst({
     where: { id: params.id, userId: user.id },

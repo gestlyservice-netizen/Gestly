@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getOutboundMode, getOutboundDiagnostics, isOutboundSimulated, maskRecipient } from "@/lib/outbound/mode";
+import { getOutboundMode, getOutboundDiagnostics, isOutboundSimulated, isOutboundDisabled, maskRecipient } from "@/lib/outbound/mode";
 
 describe("getOutboundMode — règle par défaut", () => {
   it("simulation par défaut sans aucune variable (poste local, tests)", () => {
@@ -98,10 +98,16 @@ describe("getOutboundDiagnostics — une production mal configurée n'est jamais
     expect(d.problems).toHaveLength(1);
   });
 
-  it("coupe-circuit OUTBOUND_MODE=simulate laissé en production : SIGNALÉ", () => {
-    const d = getOutboundDiagnostics({ NODE_ENV: "production", VERCEL_ENV: "production", OUTBOUND_MODE: "simulate" });
+  it("bêta privée (OUTBOUND_MODE=simulate en production) : affiché, envois de l'artisan refusés", () => {
+    const env = { NODE_ENV: "production", VERCEL_ENV: "production", OUTBOUND_MODE: "simulate" };
+    const d = getOutboundDiagnostics(env);
     expect(d.mode).toBe("simulate");
-    expect(d.problems.join()).toMatch(/AUCUN envoi réel/);
+    expect(d.notes.join()).toMatch(/AUCUN envoi réel/);
+    expect(isOutboundDisabled(env)).toBe(true);
+    // Local et Preview : simulation silencieuse, parcours testables.
+    expect(isOutboundDisabled({ NODE_ENV: "development", OUTBOUND_MODE: "simulate" })).toBe(false);
+    expect(isOutboundDisabled({ NODE_ENV: "production", VERCEL_ENV: "preview", OUTBOUND_MODE: "simulate" })).toBe(false);
+    expect(isOutboundDisabled({ NODE_ENV: "production", VERCEL_ENV: "production" })).toBe(false);
   });
 
   it("OUTBOUND_MODE avec une faute de frappe : SIGNALÉ, et jamais live en local", () => {

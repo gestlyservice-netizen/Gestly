@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 import { canSendEmail, sendEmail } from "@/lib/outbound/email";
+import { isOutboundDisabled } from "@/lib/outbound/mode";
 import { prisma } from "@/lib/prisma";
 import { isSubscriptionBlocked } from "@/lib/auth";
 import { sendSMS } from "@/lib/sms";
@@ -25,6 +26,10 @@ export interface RelancesSummary {
 // un même niveau/canal n'est jamais renvoyé une fois marqué "envoyee".
 export async function runRelancesCheck(): Promise<RelancesSummary> {
   const summary: RelancesSummary = { usersChecked: 0, facturesChecked: 0, sent: 0, failed: 0, skipped: 0 };
+
+  // Bêta privée : aucune relance n'est simulée ni enregistrée, pour qu'elles
+  // partent normalement le jour où les envois réels sont activés.
+  if (isOutboundDisabled()) return summary;
 
   const allSettings = await prisma.relanceSettings.findMany({ where: { enabled: true } });
 

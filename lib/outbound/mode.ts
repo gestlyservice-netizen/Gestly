@@ -59,8 +59,9 @@ export function getOutboundDiagnostics(env: Env = process.env): OutboundDiagnost
   if (raw && !explicit) {
     problems.push(`OUTBOUND_MODE="${raw}" non reconnu (valeurs : simulate, live) — ignoré`);
   }
-  if (mode === "simulate" && env.VERCEL_ENV === "production" && explicit === "simulate") {
-    problems.push("OUTBOUND_MODE=simulate en production : AUCUN envoi réel (WhatsApp, SMS, email, IA) ne part");
+  if (isOutboundDisabled(env)) {
+    // Choix délibéré (bêta privée), visible par l'artisan : voir isOutboundDisabled.
+    notes.push("Bêta privée (OUTBOUND_MODE=simulate en production) : AUCUN envoi réel ; les envois demandés par l'artisan sont refusés avec un message");
   }
   if (mode === "simulate" && env.VERCEL_ENV === "production" && !explicit && (env.NODE_ENV === "development" || env.NODE_ENV === "test")) {
     notes.push(`VERCEL_ENV=production ignoré car NODE_ENV=${env.NODE_ENV} : simulation`);
@@ -84,6 +85,19 @@ export function getOutboundDiagnostics(env: Env = process.env): OutboundDiagnost
 export function isOutboundSimulated(env: Env = process.env): boolean {
   return getOutboundMode(env) === "simulate";
 }
+
+// Bêta privée : simulation volontaire sur le déploiement de production.
+// Les envois demandés par l'artisan (devis, facture, relances) sont alors
+// REFUSÉS au lieu d'être simulés : un devis marqué « envoyé » qui n'est
+// jamais parti tromperait l'artisan et son client. En local et sur Preview,
+// la simulation reste silencieuse pour permettre de tester les parcours.
+export function isOutboundDisabled(env: Env = process.env): boolean {
+  return explicitMode(env) === "simulate" && env.VERCEL_ENV === "production";
+}
+
+export const OUTBOUND_DISABLED_MESSAGE =
+  "Bêta privée : l'envoi automatique (email, WhatsApp, SMS) est désactivé. " +
+  "Téléchargez le PDF (ou copiez le lien du devis) et envoyez-le vous-même.";
 
 export type OutboundChannel =
   | "whatsapp.text"

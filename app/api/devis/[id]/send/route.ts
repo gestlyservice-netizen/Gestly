@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendEmail } from "@/lib/outbound/email";
+import { isOutboundDisabled, OUTBOUND_DISABLED_MESSAGE } from "@/lib/outbound/mode";
 import type { DevisLine } from "@prisma/client";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -20,6 +21,8 @@ export async function POST(
   if (isSubscriptionBlocked(user)) {
     return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
   }
+  // Bêta privée : refus explicite, le devis n'est pas marqué envoyé.
+  if (isOutboundDisabled()) return NextResponse.json({ error: OUTBOUND_DISABLED_MESSAGE }, { status: 503 });
 
   const devis = await prisma.devis.findFirst({
     where: { id: params.id, userId: user.id },
