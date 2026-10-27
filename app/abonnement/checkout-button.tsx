@@ -13,12 +13,21 @@ export function CheckoutButton({
   const [loading, setLoading] = useState(false);
   const [consent, setConsent] = useState(false);
 
+  const [error, setError] = useState<string | null>(null);
+
   async function handleClick() {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch("/api/stripe/create-checkout-session", { method: "POST" });
-      const { url } = await res.json();
-      if (url) window.location.href = url;
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        setError(data.error ?? "Une erreur est survenue. Réessayez.");
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      setError("Erreur réseau. Vérifiez votre connexion et réessayez.");
     } finally {
       setLoading(false);
     }
@@ -55,6 +64,7 @@ export function CheckoutButton({
       >
         {loading ? "Chargement..." : label}
       </button>
+      {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
 }

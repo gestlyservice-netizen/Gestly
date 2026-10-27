@@ -1,17 +1,41 @@
 import { redirect } from "next/navigation";
 import { CheckCircle, AlertTriangle, Sparkles } from "lucide-react";
-import { getCurrentUser } from "@/lib/auth";
+import { canStartCheckout, getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
+import { syncCheckoutSession } from "@/lib/stripe-webhook";
+import { PortalButton } from "@/app/dashboard/parametres/abonnement/portal-button";
 import { CheckoutButton } from "./checkout-button";
 
-export default async function AbonnementPage() {
-  const user = await getCurrentUser();
+export default async function AbonnementPage({
+  searchParams,
+}: {
+  searchParams: { session_id?: string };
+}) {
+  let user = await getCurrentUser();
   if (!user) redirect("/sign-in");
+
+  // Retour de Stripe Checkout : synchronise sans attendre le webhook.
+  if (searchParams.session_id) {
+    let synced = false;
+    try {
+      synced = await syncCheckoutSession(user.stripeCustomerId, searchParams.session_id);
+    } catch (err) {
+      console.error("[/abonnement] synchronisation Checkout", err);
+    }
+    if (synced) {
+      const fresh = await getCurrentUser();
+      if (fresh && !isSubscriptionBlocked(fresh)) redirect("/dashboard?payment=success");
+      if (fresh) user = fresh;
+    }
+  }
 
   const hasSubscription = !!user.stripeSubscriptionId;
   const status = user.subscriptionStatus;
-  const isActiveOrTrialing = status === "active" || status === "trialing";
-  const isSuspended = status === "canceled" || status === "past_due";
+  const isActiveOrTrialing = !isSubscriptionBlocked(user);
+  // Tout abonnement existant qui ne donne pas accès (impayé, résilié, incomplet…).
+  const isSuspended = hasSubscription && !isActiveOrTrialing;
+  // Impayé : on régularise le moyen de paiement dans le portail, sans second abonnement.
+  const canResubscribe = canStartCheckout(user);
 
   let nextBillingDate: string | null = null;
   if (hasSubscription && isActiveOrTrialing && user.stripeSubscriptionId) {
@@ -127,7 +151,16 @@ export default async function AbonnementPage() {
                     Toutes vos données sont conservées.
                   </p>
                 </div>
-                <CheckoutButton label="Réactiver mon abonnement — 49 €/mois" />
+                {canResubscribe ? (
+                  <CheckoutButton label="Réactiver mon abonnement — 49 €/mois" />
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-sm text-slate-600">
+                      Le dernier paiement n&apos;a pas abouti. Mettez à jour votre moyen de paiement :
+                    </p>
+                    <PortalButton />
+                  </div>
+                )}
               </>
             )}
 

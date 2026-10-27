@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { canSendEmail, sendEmail } from "@/lib/outbound/email";
 import { prisma } from "@/lib/prisma";
+import { isSubscriptionBlocked } from "@/lib/auth";
 import { sendSMS } from "@/lib/sms";
 import { getOvhSmsBalance } from "@/lib/ovh-balance";
 import { renderMessage } from "./messages";
@@ -30,7 +31,8 @@ export async function runRelancesCheck(): Promise<RelancesSummary> {
   for (const settings of allSettings) {
     summary.usersChecked++;
     const user = await prisma.user.findUnique({ where: { id: settings.userId } });
-    if (!user) continue;
+    // Abonnement résilié ou impayé : plus aucune relance (emails et SMS à la charge de Gestly).
+    if (!user || isSubscriptionBlocked(user)) continue;
 
     const emailEnabled = canSendEmail();
 
