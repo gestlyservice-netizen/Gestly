@@ -4,6 +4,18 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-27 — Mission 20 : garde-fou Claude Code v3 (administration Vercel) — préparé, NON installé
+
+Décision de l'utilisateur : Claude administre Vercel en autonomie (lecture de la configuration, ajout et modification de variables dans tous les environnements), avec confirmation pour déploiement, suppressions et `OUTBOUND_MODE` ≠ `simulate`.
+
+- Constat : `vercel env ls production` bloqué par le hook v2 (règle `vercel env` + règle générale `vercel`) ; `settings.json` refusait aussi `Bash(vercel:*)`. Aucune commande Vercel n'a été exécutée ; `OUTBOUND_MODE` **n'est pas encore** enregistré en Production.
+- Préparé dans `scripts/claude-config/` (même procédure que la v2) : `guard.mjs` (fonction `vercelDecision`, décision la plus stricte entre plusieurs appels), `settings.json` (retrait des deux refus Vercel), `guard.proposal.test.ts`, `install.ps1` (tests préalables, diff, confirmation ou `-Oui`, copie, tests du hook installé).
+- Secrets : `vercel pull`/`env pull`/`env run`, `--token`, `VERCEL_TOKEN` et toute valeur de variable secrète écrite ou redirigée dans la commande restent refusés.
+- Preuve : `guard.proposal.test.ts` **199/199** (128 cas v2 conservés, 5 cas Vercel passés de « refus » à « accord », 71 cas v3) ; v2 installée 133/133 ; hook exécuté par `node` sur stdin : allow (code 0), ask (JSON `permissionDecision`), block (code 2) ; `install.ps1` : 0 erreur de syntaxe.
+- Prochaine action (utilisateur) : lancer `install.ps1`, relancer Claude Code, `vercel login` + `vercel link` ; ensuite Claude ajoute `OUTBOUND_MODE=simulate` en Production et contrôle les noms des variables.
+
+---
+
 ## 2026-10-27 — Mission 19 : préparation de la bêta privée (sans envois réels)
 
 Aucun push, aucun déploiement, aucune écriture sur Supabase, aucun secret lu.

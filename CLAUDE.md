@@ -6,7 +6,7 @@ SaaS de gestion pour artisans et indépendants : clients, devis, factures, avoir
 
 1. **Production intouchable sans autorisation explicite.** Interdit sans accord écrit de l'utilisateur dans la conversation en cours :
    - toute commande Prisma qui écrit dans une base (`prisma db push`, `prisma migrate dev|deploy|reset`, `prisma db execute`, scripts de seed) ;
-   - tout déploiement ou commande Vercel (`vercel`, `vercel --prod`, `vercel env ...`) ;
+   - tout déploiement ou commande Vercel (`vercel`, `vercel --prod`, `vercel env ...`) — **exception, une fois le garde-fou v3 installé** : lecture de la configuration et ajout ou modification de variables non secrètes (voir « Garde-fous Claude Code ») ;
    - tout `git push`, et a fortiori `git push --force` ;
    - tout appel réel à Stripe, Resend, OVH (SMS), Meta WhatsApp Cloud API ou au gateway IA ;
    - tout appel aux routes cron (`/api/relances/check`, `/api/stripe/resync`, `/api/admin/ovh-balance/check`, `/api/health`, `/api/whatsapp/process-pending`) ou au webhook `/api/whatsapp/webhook`.
@@ -58,6 +58,11 @@ SaaS de gestion pour artisans et indépendants : clients, devis, factures, avoir
 - ⚠️ **Avant le déploiement en production** : définir `OUTBOUND_MODE=live` dans l'environnement Production de Vercel (recommandé, déterministe) ou vérifier que `VERCEL_ENV` y est exposé. Après déploiement, contrôler `/api/health` : `checks.outbound` doit valoir `mode=live`.
 
 ## Garde-fous Claude Code (`.claude/`)
+
+> **Version 3 préparée, à installer par l'utilisateur** (décision du 2026-10-27) : `scripts/claude-config/` (`guard.mjs`, `settings.json`, 199 tests dans `guard.proposal.test.ts`), installation par `powershell -ExecutionPolicy Bypass -File scripts\claude-config\install.ps1`. Une fois installée, **administration Vercel autonome** :
+> - **Autorisé** : `vercel env ls`, `inspect`, `project ls|inspect`, `ls`, `whoami`, `logs`, `domains ls` ; `npm i -g vercel` ; `vercel env add|update` d'une variable **non secrète** dans tout environnement (Production, Preview, Development), dont `OUTBOUND_MODE` à condition que la valeur `simulate` figure dans la commande (`"simulate" | vercel env add OUTBOUND_MODE production`).
+> - **Accord demandé** : déploiement (`vercel`, `--prod`, `deploy`, `redeploy`, `promote`, `rollback`, `alias`), toute suppression (`env rm`, `project rm`, `remove`, `domains rm`), `OUTBOUND_MODE` autre que `simulate`, `VERCEL_ENV`/`NODE_ENV`, variable secrète sans valeur dans la commande, `link`, `login`, `api` et toute sous-commande non répertoriée.
+> - **Bloqué** : `vercel pull`, `env pull`, `env run` (valeurs secrètes sur disque), `--token`/`VERCEL_TOKEN`, et toute valeur d'une variable secrète (`*SECRET*`, `*KEY*`, `*TOKEN*`, `DATABASE_URL`…) écrite dans la commande ou redirigée depuis un fichier : l'utilisateur la saisit lui-même. `git push`, SQL d'écriture Supabase et `OUTBOUND_MODE=live` local : inchangés.
 
 > **Version 2 active** : installée par l'utilisateur le 2026-10-22 (`.claude/settings.json`, `.claude/hooks/guard.mjs`, 133 tests dans `tests/claude-guard.test.ts`). La description « v1 » plus bas reste valable pour les blocages, sauf `psql` et `prisma migrate diff`, désormais traités comme indiqué ici.
 >
