@@ -4,6 +4,36 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-27 — Mission 18 : recette Stripe simulée, test d'exécution local, fuite du lien public corrigée
+
+Branche `test/whatsapp-flow`. Aucun push, aucun déploiement, aucune écriture sur Supabase (lectures SQL uniquement), aucun appel à Stripe.
+
+### État constaté (lecture seule)
+- Supabase : migrations de numérotation en place (index uniques `Devis/Facture/Avoir_userId_number_key`, FK `RESTRICT` sur factures et avoirs, index `Notification_userId_dedupeKey_key`). Aucune écriture depuis le 2026-04 (5 factures, 8 devis, 0 avoir, 3 utilisateurs, tous fictifs). Advisors : inchangés (`rls_auto_enable`, WARN connu).
+- Git : `main` = `origin/main` = `7128471` (2026-07-22), donc la production tourne sans les 35 commits de la branche. Phase C toujours à faire.
+
+### Défauts corrigés
+| Défaut | Conséquence | Correction | Preuve |
+|---|---|---|---|
+| Checkout possible avec un abonnement en cours | Deux abonnements, double prélèvement (bouton « Réactiver » sur un compte impayé, double clic, retour de paiement avant le webhook) | `canStartCheckout()` (409), adoption d'un abonnement Stripe déjà en cours, retour `success_url` synchronisé (`syncCheckoutSession`) | `lib/stripe-webhook.test.ts` |
+| Essai de 14 jours à chaque réabonnement | Essais gratuits illimités | Essai seulement au premier abonnement | idem |
+| `isSubscriptionBlocked` en liste noire | `unpaid`, `incomplete`, `paused` gardaient l'accès | Liste blanche `active`/`trialing`, partagée par le layout du dashboard | idem |
+| `invoice.payment_succeeded` forçait `active` | Compte en essai affiché « actif » (facture à 0 €) ; événement tardif pouvant écraser une résiliation | Chaque événement relit l'abonnement chez Stripe ; un ancien abonnement n'écrase plus le courant ; abonnement de facture lu dans `parent.subscription_details` (API basil, SDK 22) | idem |
+| Relances pour comptes résiliés | Emails et SMS payés par Gestly pour des non-abonnés | `runRelancesCheck` ignore les comptes bloqués | idem |
+| Page `/abonnement` | Statut `unpaid` : page vide ; erreurs de paiement silencieuses | Tout statut sans accès = suspendu ; impayé → portail ; erreurs affichées | build |
+| **`/api/public/devis/:id` renvoyait l'utilisateur complet** | Tout client qui reçoit le lien voyait `clerkId`, email personnel, identifiants et statut Stripe de l'artisan, données de signature (RGPD) | `select` en liste blanche | `tests/public-devis.test.ts` (4) + vérifié en exécution |
+
+### Test d'exécution local (`npm run dev`, simulation)
+`scratchpad/smoke.mjs`, localhost uniquement : 26/26. Landing et 6 pages légales, robots, sitemap, connexion/inscription : 200. Dashboard et API sans session : 404 (middleware Clerk) ; `/abonnement` → `/sign-in` ; checkout et portail : 401 ; webhook Stripe sans signature : 400. Lien court `/d/:id` → `/print/devis/:id` : 200. Pages d'impression des factures : données chargées par l'API authentifiée (non publiques).
+
+### Vérification
+tsc 0, lint propre, **25 fichiers / 434 tests**, build isolé code 0. Stripe CLI installé (`winget`), non connecté.
+
+### Non fait (nécessite l'utilisateur)
+- Recette Stripe réelle en mode test : `stripe login` (interactif), puis connexion Clerk dans le navigateur et paiement avec la carte 4242.
+
+---
+
 ## 2026-10-23 — Mission 17 : migrations de numérotation appliquées sur Supabase, mentions légales corrigées (terminée)
 
 Branche `test/whatsapp-flow`. Aucun push, aucun déploiement. Une seule écriture sur Supabase, sur autorisation écrite de l'utilisateur (« J'autorise l'application des migrations sur Supabase »).

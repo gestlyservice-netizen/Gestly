@@ -219,7 +219,7 @@ npm.cmd run lint               # ESLint (next/core-web-vitals + next/typescript)
 npm.cmd test -- --run          # Vitest, une passe
 ```
 
-Dernier résultat de référence (2026-10-23, branche `test/whatsapp-flow`) : tsc 0, lint propre, 23 fichiers / 411 tests, build isolé OK — voir `PROGRESS.md`, Mission 17.
+Dernier résultat de référence (2026-10-27, branche `test/whatsapp-flow`) : tsc 0, lint propre, 25 fichiers / 434 tests, build isolé OK — voir `PROGRESS.md`, Mission 18.
 
 Règles pour les tests :
 - Les tests doivent rester **entièrement simulés** : `vi.mock("@/lib/prisma")`, modules d'envoi (`@/lib/whatsapp/send`, `media`, SDK Stripe/Resend/OVH) mockés, modèles IA injectés via `MockLanguageModelV4` / `MockTranscriptionModelV4` (`ai/test`) grâce au paramètre `opts.model`. Aucun test ne doit lire `.env*` ni ouvrir une connexion réelle.

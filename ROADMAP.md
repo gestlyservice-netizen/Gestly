@@ -26,11 +26,11 @@ Légende complémentaire : 🧪 **Logique testée** — tests unitaires simulés
 | # | Fonctionnalité | État | Preuve d'existence (chemins) |
 |---|---|---|---|
 | 1 | Authentification (Clerk) et protection des routes | 🟡 | `middleware.ts`, `lib/auth.ts`, `app/sign-in`, `app/sign-up` |
-| 2 | Blocage API des comptes non abonnés | 🟡 | `lib/auth.ts` (`isSubscriptionBlocked`), utilisé dans les routes API |
+| 2 | Blocage API des comptes non abonnés | 🧪 Liste blanche `active`/`trialing` (2026-10-27), partagée par le dashboard, les routes API et les relances ; routes sans session vérifiées en exécution locale (404/401) | `lib/auth.ts` (`isSubscriptionBlocked`, `canStartCheckout`), utilisé dans les routes API |
 | 3 | Gestion des clients (CRUD, recherche, filtres, canal préféré) | 🟡 | `app/api/clients/`, `app/dashboard/clients/page.tsx` |
 | 4 | Devis : création, édition, détail | 🟡 | `app/api/devis/`, `app/dashboard/devis/(nouveau|[id]|[id]/modifier)` |
 | 5 | Devis : duplication | 🟡 | `app/api/devis/[id]/duplicate/route.ts` |
-| 6 | Devis : lien public / lien court | 🟡 | `app/api/devis/[id]/link`, `app/api/public/devis/[id]`, `app/d/[id]/page.tsx` |
+| 6 | Devis : lien public / lien court | 🧪 Fuite des données du compte de l'artisan corrigée (2026-10-27, 4 tests) ; lien court et page publique vérifiés en exécution locale | `app/api/devis/[id]/link`, `app/api/public/devis/[id]`, `app/d/[id]/page.tsx` |
 | 7 | Devis : envoi par email | 🟡 | `app/api/devis/[id]/send/route.ts` |
 | 8 | Devis : envoi WhatsApp (template Meta `devis_client`) | 🟡 | `app/api/devis/[id]/whatsapp/route.ts`, bouton dans `app/dashboard/devis/[id]/page.tsx` |
 | 9 | Conversion devis → facture | 🧪 Transaction unique, une seule facture par devis même sur double clic (409) | `app/api/devis/[id]/to-facture/route.ts` |
@@ -46,7 +46,7 @@ Légende complémentaire : 🧪 **Logique testée** — tests unitaires simulés
 | 17 | Pipeline commercial (opportunités) | 🟡 | `app/api/opportunities/`, `app/dashboard/pipeline` |
 | 18 | Notifications in-app | 🟡 | `app/api/notifications/`, `lib/notifications.ts`, `components/layouts/notifications-bell.tsx` |
 | 19 | Paramètres entreprise + logo | 🟡 | `app/api/settings/`, `app/api/settings/logo`, `app/dashboard/parametres` |
-| 20 | Abonnement Stripe (checkout, portail, webhook, resync cron) | 🟡 | `app/api/stripe/`, `lib/stripe.ts`, `lib/stripe-sync.ts`, `app/dashboard/parametres/abonnement` |
+| 20 | Abonnement Stripe (checkout, portail, webhook, resync cron) | 🧪 Recette simulée (2026-10-27, 19 tests, signature vérifiée par le vrai SDK) : double abonnement, essai rejoué, statuts impayés et ordre des webhooks corrigés. **Parcours réel en mode test non fait** (nécessite `stripe login` et une connexion de l'utilisateur) | `app/api/stripe/`, `lib/stripe.ts`, `lib/stripe-sync.ts`, `app/dashboard/parametres/abonnement` |
 | 21 | Landing, SEO, pages légales | 🟡 | `app/page.tsx`, `components/landing/`, `app/(cgu|cgv|privacy|mentions-legales|remboursement|contact)`, `app/robots.ts` |
 | 22 | Monitoring Sentry | 🟡 | `sentry.*.config.ts`, `instrumentation.ts` |
 | 23 | Agent IA WhatsApp conversationnel, intégré depuis la branche `feature/whatsapp-agent-v1` (merge `dbd67c6`) | 🟡 | Voir le détail ci-dessous |
@@ -85,7 +85,7 @@ Origine : code retrouvé le 2026-10-22 dans la copie de l'ancien PC, sur une bra
 | Garde-fous Claude Code (`.claude/settings.json` + hook) | 🧪 v2 installée (2026-10-22) : autoriser / demander / bloquer, 133 tests ; limites documentées |
 | Autres garde-fous de dev (`APP_URL` localhost, SSL Postgres configurable) | 🔴 Non traités |
 | Migrations Prisma versionnées (`prisma/migrations`) | 🔴 ⚠️ Pas de `prisma/migrations` ; seulement des scripts SQL manuels dans `prisma/manual-migrations/` (agent WhatsApp) |
-| Framework de tests | 🟢 Vitest 2.1.9 installé, **23 fichiers / 411 tests réussis** (2026-10-23, branche `test/whatsapp-flow`, dont 133 tests du garde-fou), dont 42 tests d'intégration WhatsApp et 33 tests d'intégration des documents, sur une base Prisma en mémoire avec verrous réellement bloquants (`tests/support/fake-prisma.ts`). Couverture limitée à l'agent WhatsApp, à `lib/ai/usage` et à `lib/notifications` ; le reste de l'application (devis, factures, relances, Stripe…) n'a **aucun test**. Playwright : 🔴 |
+| Framework de tests | 🟢 Vitest 2.1.9 installé, **25 fichiers / 434 tests réussis** (2026-10-27, branche `test/whatsapp-flow`, dont 133 tests du garde-fou et 19 tests Stripe), dont 42 tests d'intégration WhatsApp et 33 tests d'intégration des documents, sur une base Prisma en mémoire avec verrous réellement bloquants (`tests/support/fake-prisma.ts`). Couverture limitée à l'agent WhatsApp, à `lib/ai/usage` et à `lib/notifications` ; le reste de l'application (devis, factures, relances, Stripe…) n'a **aucun test**. Playwright : 🔴 |
 | Scripts npm `typecheck` / `test` / `check` | 🟡 `test` (`vitest run`) présent ; `typecheck` et `check` : 🔴 |
 | CI GitHub Actions (lint, typecheck, tests, build) | 🔴 |
 | `.claude/` versionné (settings, hooks, sous-agents) | 🔴 ⚠️ `.claude/` est actuellement ignoré par `.gitignore` |
