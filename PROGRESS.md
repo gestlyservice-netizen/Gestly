@@ -4,7 +4,18 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
-## 2026-10-27 — Mission 20 : garde-fou Claude Code v3 (administration Vercel) — préparé, NON installé
+## 2026-10-27 — Mission 21 : configuration Vercel Production (bêta privée)
+
+- Garde-fou v3 installé par l'utilisateur (`install.ps1`), CLI Vercel 65.4.0 connectée et liée (`gestlyservice-netizens-projects/gestly`). MCP Vercel enregistré pour ce projet (portée locale), authentification non faite. Aucun plugin installé.
+- `vercel env ls --environment production` (noms seulement) : `OUTBOUND_MODE` **absente** → ajoutée (`printf simulate | vercel env add OUTBOUND_MODE production`), type Secret, Production. Présentes : `DATABASE_URL`, `CRON_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET` (+ Clerk, `APP_URL`, Sentry DSN, Supabase service role, WhatsApp). Absentes : Resend, OVH, clés IA (inutiles en bêta).
+- La valeur d'`OUTBOUND_MODE` n'est pas relisible (chiffrée) : preuve attendue après déploiement, `/api/health` → `checks.outbound = mode=simulate`. Elle ne s'applique qu'au prochain déploiement.
+- Dernier déploiement Production : il y a 98 jours (= `origin/main` du 2026-07-22) ; les 39 commits de la branche ne sont pas en ligne.
+- Non vérifiable sans lire les valeurs : mode test ou live de Stripe, instance Clerk, projet Supabase visé par `DATABASE_URL` (contrôle par `/api/health` après déploiement).
+- `vercel link` a écrit un `VERCEL_OIDC_TOKEN` dans `.env.local` et ajouté `.env*` à `.gitignore` (exception `!.env.example` ajoutée, `64fcbd0`) ; l'utilisateur doit retirer la ligne du jeton.
+
+---
+
+## 2026-10-27 — Mission 20 : garde-fou Claude Code v3 (administration Vercel) — installé par l'utilisateur
 
 Décision de l'utilisateur : Claude administre Vercel en autonomie (lecture de la configuration, ajout et modification de variables dans tous les environnements), avec confirmation pour déploiement, suppressions et `OUTBOUND_MODE` ≠ `simulate`.
 

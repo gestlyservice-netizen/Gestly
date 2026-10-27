@@ -44,8 +44,6 @@
       "Edit(./.claude/settings.local.json)",
       "Edit(./.claude/hooks/**)",
       "Bash(git push:*)",
-      "Bash(vercel:*)",
-      "Bash(npx vercel:*)",
       "Bash(prisma db push:*)",
       "Bash(prisma db execute:*)",
       "Bash(prisma migrate dev:*)",

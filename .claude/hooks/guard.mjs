@@ -1,16 +1,23 @@
 #!/usr/bin/env node
-// Garde-fou Claude Code (hook PreToolUse) pour Gestly — version 2.
+// Garde-fou Claude Code (hook PreToolUse) pour Gestly — version 3.
 //
 // Trois décisions :
 //   - "allow" : le hook n'intervient pas (les règles de settings.json s'appliquent) ;
 //   - "ask"   : Claude Code demande l'accord de l'utilisateur avant d'exécuter
 //               (actions à risque mais légitimes : SQL d'écriture sur Supabase,
 //               psql vers une base distante, perte de travail Git local,
-//               suppression récursive hors du projet) ;
+//               suppression récursive hors du projet, déploiement Vercel,
+//               suppression de variable ou de projet Vercel, OUTBOUND_MODE
+//               autre que simulate) ;
 //   - "block" : refus, l'action reste réservée à l'utilisateur (secrets,
-//               migrations Prisma et Supabase CLI, déploiement, push, envois et
-//               paiements réels, suppression de sauvegardes, modification des
-//               garde-fous).
+//               migrations Prisma et Supabase CLI, push, envois et paiements
+//               réels, suppression de sauvegardes, modification des garde-fous).
+//
+// v3 (décision de l'utilisateur, 2026-10-27) : administration Vercel autonome —
+// lecture de la configuration (env ls, inspect, project inspect…) et ajout ou
+// modification de variables non secrètes, dans tous les environnements. Les
+// valeurs secrètes ne doivent jamais apparaître dans une commande : `env pull`,
+// `pull`, `--token` et une valeur secrète écrite dans la commande sont refusés.
 //
 // Protocole : JSON sur stdin ({ tool_name, tool_input }). Blocage : code de
 // sortie 2 (message sur stderr renvoyé à Claude). Demande d'accord : JSON
@@ -45,15 +52,15 @@ const BLOCK_RULES = [
   { re: OLD_PC_SECRET, why: "accès aux secrets de la copie de l'ancien PC (.env, configuration/remote Git avec token)" },
   { re: /(^|[\s;&|(])(printenv|Get-ChildItem\s+env:|gci\s+env:|dir\s+env:|ls\s+env:)/i, why: "affichage des variables d'environnement (secrets)" },
   { re: /(^|[;&|(]\s*)env\s*($|[|;&>])/i, why: "affichage des variables d'environnement (secrets)" },
-  { re: /\bgh\s+secret\b|\bvercel\s+env\b/i, why: "lecture ou modification de secrets distants" },
+  { re: /\bgh\s+secret\b/i, why: "lecture ou modification de secrets distants" },
+  { re: /\bVERCEL_TOKEN\s*=|\$env:VERCEL_TOKEN\b/i, why: "jeton Vercel dans la commande (secret visible dans le journal)" },
   // Schéma et base distante
   { re: /\bdb\s+push\b/i, why: "`db push` (prisma/supabase) : modification destructive du schéma" },
   { re: /\bmigrate\s+(dev|deploy|reset|resolve)\b/i, why: "migration Prisma (réservée à l'utilisateur)" },
   { re: /\bdb\s+(execute|pull|seed)\b/i, why: "`prisma db execute|pull|seed` : exécution SQL ou réécriture du schéma" },
   { re: /--(force-reset|accept-data-loss)\b/i, why: "option destructive Prisma" },
   { re: /\bsupabase\s+(db\s+(reset|push)|migration\s+(up|repair)|link|secrets)\b/i, why: "commande Supabase CLI modifiant la base ou les secrets" },
-  // Déploiement et publication
-  { re: new RegExp(`${CMD}((npx|bunx)\\s+(--yes\\s+|-y\\s+)?|pnpm\\s+(dlx\\s+)?|yarn\\s+(dlx\\s+)?|npm(\\.cmd)?\\s+(exec|x)\\s+(--\\s+)?)?vercel(\\.cmd|\\.exe)?(\\s|$)`, "i"), why: "commande Vercel (déploiement / variables de production)" },
+  // Publication (Vercel : voir vercelDecision)
   { re: /\bgit\b(?:(?!\bstash\b)[^;&|\n])*\spush\b/i, why: "git push (publication sur GitHub réservée à l'utilisateur)" },
   { re: /\bgh\s+(pr\s+(create|merge)|repo\s+(sync|create|delete|edit)|release\s+create|workflow\s+run|api\b[^;&|]*-X\s*(POST|PUT|PATCH|DELETE))/i, why: "publication GitHub via gh" },
   { re: /\bnpm(\.cmd)?\s+(publish|unpublish|deprecate)\b/i, why: "publication npm" },
@@ -94,6 +101,88 @@ function pgDecision(command) {
   }
   if (PG_LOCAL.test(command)) return { decision: "allow" };
   return { decision: "ask", reason: `${tool} sans cible locale explicite (localhost) : accord requis` };
+}
+
+// ── Vercel : lecture et variables autorisées, déploiement et suppression sur accord ─
+// Chaque appel de la CLI (direct, npx, pnpm dlx, npm exec…) est évalué ; la
+// décision la plus stricte l'emporte. Le séparateur capturé indique si une
+// valeur est envoyée par un tube (`"simulate" | vercel env add …`).
+const VERCEL_CALL = new RegExp(String.raw`(^|[;&|(\n]\s*|["'\x60]\s*)(?:(?:npx|bunx)\s+(?:--yes\s+|-y\s+)?|pnpm\s+(?:dlx\s+)?|yarn\s+(?:dlx\s+)?|npm(?:\.cmd)?\s+(?:exec|x)\s+(?:--\s+)?)?vercel(?:\.cmd|\.exe)?(?:@[\w.-]+)?(?=\s|$|["'\x60])([^;&|\n]*)`, "gi");
+// Options globales suivies d'une valeur (à ne pas prendre pour une sous-commande).
+const VERCEL_VALUE_FLAGS = new Set(["--scope", "-s", "--cwd", "--team", "--local-config", "-a", "--global-config", "-q", "--value", "--environment", "--target", "--git-branch"]);
+const VERCEL_READ = new Set(["whoami", "ls", "list", "inspect", "logs", "help"]);
+const VERCEL_READ_SUB = {
+  project: ["ls", "list", "inspect"], projects: ["ls", "list", "inspect"],
+  env: ["ls", "list"], domains: ["ls", "list", "inspect"], domain: ["ls", "list", "inspect"],
+  dns: ["ls", "list"], certs: ["ls", "list"], alias: ["ls", "list"], aliases: ["ls", "list"], teams: ["ls", "list"],
+};
+const VERCEL_DEPLOY = new Set(["deploy", "redeploy", "promote", "rollback", "build", "alias", "aliases"]);
+const VERCEL_DELETE = new Set(["rm", "remove"]);
+// Noms de variables dont la valeur est secrète : jamais écrite dans une commande.
+const SECRET_VAR = /(SECRET|TOKEN|KEY|PASSWORD|PASSWD|PRIVATE|CREDENTIAL|CONNECTION|_DSN$|^DATABASE_URL$|^DIRECT_URL$)/i;
+const SEVERITY = { allow: 0, ask: 1, block: 2 };
+
+function vercelCallDecision(sep, args, command) {
+  const tokens = args.replace(/["'\x60]/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (tokens.some((t) => /^(--token|-t)(=|$)/i.test(t))) {
+    return { decision: "block", reason: "jeton Vercel dans la commande (secret visible dans le journal) ; utiliser `vercel login`" };
+  }
+  const pos = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.startsWith("-")) {
+      if (VERCEL_VALUE_FLAGS.has(t.toLowerCase())) i++;
+      continue;
+    }
+    pos.push(t);
+  }
+  const [sub = "", action = "", name = ""] = pos;
+  const s = sub.toLowerCase();
+  const a = action.toLowerCase();
+
+  if (s === "pull" || (s === "env" && (a === "pull" || a === "run"))) {
+    return { decision: "block", reason: "`vercel pull` / `env pull` / `env run` : écriture ou injection des valeurs secrètes (réservé à l'utilisateur)" };
+  }
+  if (!s) {
+    return tokens.some((t) => /^(--version|-v|--help|-h)$/i.test(t))
+      ? { decision: "allow" }
+      : { decision: "ask", reason: "déploiement Vercel : accord requis" };
+  }
+  if (VERCEL_READ.has(s)) return { decision: "allow" };
+  if (VERCEL_READ_SUB[s]?.includes(a)) return { decision: "allow" };
+
+  if (s === "env" && (a === "add" || a === "update")) {
+    const upper = name.toUpperCase();
+    if (!upper) return { decision: "ask", reason: "variable Vercel sans nom explicite : accord requis" };
+    if (upper === "OUTBOUND_MODE") {
+      return /\bsimulate\b/i.test(command) && !/\blive\b/i.test(command)
+        ? { decision: "allow" }
+        : { decision: "ask", reason: "OUTBOUND_MODE autre que simulate (envois réels possibles) : accord requis" };
+    }
+    if (upper === "VERCEL_ENV" || upper === "NODE_ENV") {
+      return { decision: "ask", reason: `${upper} pilote le mode des envois : accord requis` };
+    }
+    if (SECRET_VAR.test(upper)) {
+      const inline = sep.includes("|") || tokens.some((t) => /^--value(=|$)/i.test(t)) || /</.test(args);
+      return inline
+        ? { decision: "block", reason: `valeur secrète de ${upper} écrite dans la commande (visible dans le journal) ; l'utilisateur la saisit lui-même (tableau de bord ou \`! vercel env add\`)` }
+        : { decision: "ask", reason: `variable secrète ${upper} : la valeur doit être saisie par l'utilisateur` };
+    }
+    return { decision: "allow" };
+  }
+  if (s === "env" && VERCEL_DELETE.has(a)) return { decision: "ask", reason: "suppression d'une variable Vercel : accord requis" };
+  if (VERCEL_DELETE.has(s) || VERCEL_DELETE.has(a)) return { decision: "ask", reason: "suppression Vercel (projet, déploiement, domaine…) : accord requis" };
+  if (VERCEL_DEPLOY.has(s) || tokens.some((t) => /^--prod$/i.test(t))) return { decision: "ask", reason: "déploiement Vercel : accord requis" };
+  return { decision: "ask", reason: `commande Vercel \`${s}${a ? ` ${a}` : ""}\` non répertoriée : accord requis` };
+}
+
+export function vercelDecision(command) {
+  let worst = null;
+  for (const m of command.matchAll(VERCEL_CALL)) {
+    const d = vercelCallDecision(m[1], m[2], command);
+    if (!worst || SEVERITY[d.decision] > SEVERITY[worst.decision]) worst = d;
+  }
+  return worst;
 }
 
 // ── Actions locales à confirmer ────────────────────────────────────────────
@@ -151,6 +240,8 @@ export function evaluate(toolName, toolInput = {}) {
     if (/prisma\/manual-migrations\/[^\s"']*\.sql/i.test(command) && /\bsupabase\b/i.test(command)) {
       return verdict("block", "script SQL de migration vers Supabase via la CLI (réservé à l'utilisateur)");
     }
+    const vercel = vercelDecision(command);
+    if (vercel && vercel.decision !== "allow") return verdict(vercel.decision, vercel.reason);
     const pg = pgDecision(command);
     if (pg && pg.decision === "ask") return verdict("ask", pg.reason);
     for (const rule of ASK_RULES) {
