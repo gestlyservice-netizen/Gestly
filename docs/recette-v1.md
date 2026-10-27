@@ -2,6 +2,38 @@
 
 Préparée le 2026-10-27, après le déploiement `e529cfd` (`dpl_EnZcY9BYN722iwD5gA5h6dCaQRGb`). Durée : 90 à 120 minutes.
 
+## Déjà couvert par les tests automatisés (ne pas refaire à la main)
+
+`npm.cmd test -- --run` (aucun appel externe, base simulée). Les tests ne remplacent pas un passage réel sur `www.gestly.fr` : Clerk, Stripe, la base et le rendu navigateur ne sont vérifiés qu'à la main.
+
+| Recette | Couvert par |
+|---|---|
+| 1.2, 7.x — refus sans connexion, abonnement suspendu (402), isolement A/B sur **toutes** les routes `[id]` | `tests/api-access.test.ts` (balayage automatique de toutes les routes API) |
+| 1.6–1.8, 8.x — essai 14 jours, pas de second paiement, pas de second essai, statuts impayés | `lib/stripe-webhook.test.ts` |
+| 2.3, 4.1, 4.8–4.10, 5.1–5.3, 5.6–5.7, 7.3 — numérotation, cycle de vie, avoirs, suppressions | `tests/documents-numbering.integration.test.ts` |
+| 4.1, 4.2, 5.3 — calcul HT/TVA/TTC au centime, lignes invalides refusées | `lib/documents/totals.test.ts`, `tests/document-totals.routes.test.ts` |
+| 4.3, 5.4, 5.8 — contenu et pagination des PDF, mentions légales | `lib/pdf/generate-document-pdf.test.ts`, `lib/documents/legal-mentions.test.ts` |
+| 4.5, 4.6, 5.5, 5.10 — envois refusés en bêta, relances suspendues | `lib/outbound/email-delivery.test.ts`, `lib/outbound/mode.test.ts` |
+| 4.7 — lien public sans données de compte | `tests/public-devis.test.ts` |
+
+## Parcours manuel minimal (30 minutes)
+
+À faire sur `www.gestly.fr` : il vérifie ce qu'aucun test local ne peut prouver (vrais services, navigateur, téléphone).
+
+| # | Étapes | Attendu | OK/KO |
+|---|---|---|---|
+| M1 | **Connexion** : fenêtre privée, créer le compte A, se déconnecter, se reconnecter | Arrivée sur `/abonnement`, puis connexion conservée | |
+| M2 | **Stripe test** : cocher CGU/CGV, payer avec `4242 4242 4242 4242` | La page Stripe affiche le bandeau « Mode test » ; retour au dashboard ; Paramètres → Abonnement : « Essai gratuit », fin à J+14 | |
+| M3 | Paramètres : raison sociale, SIRET, adresse, conditions de paiement | Enregistré après rechargement | |
+| M4 | **Devis PDF** : client fictif, devis de 2 lignes (`3 × 0,10 €` à 20 % ; `1,5 × 33,33 €` à 10 %) | Aperçu et devis : HT 50,30 €, TVA 5,06 €, TTC 55,36 € ; PDF téléchargé, lisible, avec SIRET et mentions | |
+| M5 | « Envoyer » le devis | Message « Bêta privée… désactivé » | |
+| M6 | **Facture** : devis → signé → « Transformer en facture » ; PDF ; avoir partiel avec motif | `FAC-2026-…` aux mêmes montants ; PDF avec pénalités et indemnité de 40 € ; `AV-2026-…` | |
+| M7 | **Isolation** : compte B (autre fenêtre privée, paiement test), coller l'URL du devis et de la facture de A | Introuvable, aucune donnée de A ; listes de B vides | |
+| M8 | **Mobile** : téléphone, compte A, menu, liste et création d'un devis, PDF | Utilisable, pas de débordement bloquant | |
+| M9 | Compte B : portail Stripe → annuler l'abonnement | Accès bloqué → `/abonnement` « Abonnement suspendu » | |
+
+Si M1 à M9 sont OK, le bloc détaillé ci-dessous ne sert qu'en cas de doute.
+
 ## Règles
 - **Données fictives uniquement** : clients, emails et téléphones inventés (`client.test@example.com`, `+33 6 00 00 00 01`). La base est partagée avec le développement.
 - **Paiement** : Stripe en mode test, carte `4242 4242 4242 4242`, date future, CVC quelconque. Carte refusée : `4000 0000 0000 0341`.

@@ -26,9 +26,9 @@ Légende complémentaire : 🧪 **Logique testée** — tests unitaires simulés
 | # | Fonctionnalité | État | Preuve d'existence (chemins) |
 |---|---|---|---|
 | 1 | Authentification (Clerk) et protection des routes | 🟡 | `middleware.ts`, `lib/auth.ts`, `app/sign-in`, `app/sign-up` |
-| 2 | Blocage API des comptes non abonnés | 🧪 Liste blanche `active`/`trialing` (2026-10-27), partagée par le dashboard, les routes API et les relances ; routes sans session vérifiées en exécution locale (404/401) | `lib/auth.ts` (`isSubscriptionBlocked`, `canStartCheckout`), utilisé dans les routes API |
+| 2 | Blocage API des comptes non abonnés | 🧪 Liste blanche `active`/`trialing` (2026-10-27), partagée par le dashboard, les routes API et les relances ; routes sans session vérifiées en exécution locale (404/401). Contrôle ajouté sur 11 routes qui l'omettaient ; **balayage automatique de toutes les routes API** (`tests/api-access.test.ts`) : refus sans connexion, 402 si suspendu, cron/admin refusés à un artisan, isolement des comptes sur chaque `[id]` | `lib/auth.ts` (`isSubscriptionBlocked`, `canStartCheckout`), utilisé dans les routes API |
 | 3 | Gestion des clients (CRUD, recherche, filtres, canal préféré) | 🟡 | `app/api/clients/`, `app/dashboard/clients/page.tsx` |
-| 4 | Devis : création, édition, détail | 🟡 | `app/api/devis/`, `app/dashboard/devis/(nouveau|[id]|[id]/modifier)` |
+| 4 | Devis : création, édition, détail | 🧪 Montants au centime et lignes validées côté serveur, calcul unique partagé avec les factures et les aperçus (2026-10-27, `lib/documents/totals.ts`, 36 tests) ; statut de création limité à brouillon/envoyé. Parcours réel : 🟡 | `app/api/devis/`, `app/dashboard/devis/(nouveau|[id]|[id]/modifier)` |
 | 5 | Devis : duplication | 🟡 | `app/api/devis/[id]/duplicate/route.ts` |
 | 6 | Devis : lien public / lien court | 🧪 Fuite des données du compte de l'artisan corrigée (2026-10-27, 4 tests) ; lien court et page publique vérifiés en exécution locale | `app/api/devis/[id]/link`, `app/api/public/devis/[id]`, `app/d/[id]/page.tsx` |
 | 7 | Devis : envoi par email | 🟡 | `app/api/devis/[id]/send/route.ts` |

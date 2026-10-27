@@ -4,6 +4,19 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-27 — Mission 23 : recette accélérée (tests automatisés, anomalies corrigées)
+
+Aucune donnée de Production modifiée, aucun déploiement. Branche `test/whatsapp-flow`, en avance sur `origin/main` (= production).
+
+- Correspondance recette ↔ tests existants : `docs/recette-v1.md` (tableau « Déjà couvert ») ; la plupart des blocs l'étaient déjà (numérotation, avoirs, Stripe, PDF, mentions, lien public, envois en bêta).
+- **Anomalie 1 corrigée (`b514b59`)** : montants calculés en virgule flottante sans arrondi et sans validation, en 3 endroits (création/modification de devis, création de facture). Ex. `3 × 0,10 €` + `1,5 × 33,33 €` : TTC 55,35 € enregistré au lieu de 55,36 € ; taux de TVA absent → `NaN` (`Number(x) ?? 20`) ; quantité négative, prix négatif, taux de 200 % acceptés ; date d'échéance invalide → 500. Calcul unique `lib/documents/totals.ts` (centimes entiers, TVA par taux) partagé avec les aperçus des formulaires ; statut de création limité à brouillon/envoyé. Tests : `lib/documents/totals.test.ts` (21), `tests/document-totals.routes.test.ts` (15).
+- **Anomalie 2 corrigée (`72bb0ab`)** : 11 routes sans contrôle d'abonnement (notifications, agenda, pipeline, PDF d'avoir, relances, lien de devis, réactivation WhatsApp…) ; `GET /api/ai/improve-message` sans connexion (protégé en production par le middleware). Nouveau `tests/api-access.test.ts` : balaie **toutes** les routes API (refus sans connexion, 402 suspendu ×3 statuts, cron/admin refusés à un artisan, isolement sur chaque `[id]` : requêtes filtrées par compte, 404, aucune écriture). L'isolement était déjà correct partout.
+- Données existantes non modifiées (5 factures, 8 devis : montants enregistrés par l'ancien calcul, inchangés).
+- Vérification : tsc 0, lint propre, **28 fichiers / 546 tests**, build isolé code 0.
+- Parcours manuel minimal (M1–M9, 30 min) ajouté en tête de `docs/recette-v1.md`. **Il suppose le déploiement de ces correctifs** (sinon M4 affiche 55,35 € au lieu de 55,36 €).
+
+---
+
 ## 2026-10-27 — Mission 22 : déploiement de la bêta privée, C2, plan de recette
 
 - Fusion en avance rapide préparée par Claude (`main` = `e529cfd`), push par l'utilisateur. Vercel : `dpl_EnZcY9BYN722iwD5gA5h6dCaQRGb`, Production, **Ready**, build 2 min 2 s, alias `www.gestly.fr` et `www.digiteo-gestly.com`.
