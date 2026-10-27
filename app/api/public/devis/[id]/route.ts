@@ -11,13 +11,29 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Liste blanche des champs envoyés : la réponse est lisible par toute
+    // personne qui a le lien. Jamais le compte de l'artisan (clerkId, email
+    // personnel, identifiants et statut Stripe) ni les données de signature.
     const devis = await prisma.devis.findUnique({
       where: { id: params.id },
-      include: {
-        client: true,
-        lines:  true,
+      select: {
+        id: true, number: true, status: true, totalHT: true, totalTVA: true, totalTTC: true,
+        validityDays: true, notes: true, createdAt: true, sentAt: true,
+        linkRevoked: true, linkExpiresAt: true,
+        client: { select: { name: true, email: true, phone: true, address: true } },
+        lines: { select: { id: true, description: true, quantity: true, unitPriceHT: true, tvaRate: true, totalHT: true } },
         user: {
-          include: { settings: true },
+          select: {
+            clerkId: true,
+            settings: {
+              select: {
+                companyName: true, formeJuridique: true, siret: true, tvaIntracom: true,
+                adresseRue: true, codePostal: true, ville: true, telephone: true, emailPro: true,
+                siteWeb: true, logoUrl: true, couleurPrincipale: true, piedDePage: true,
+                penalitesRetard: true, conditionsPaiement: true, reservePropriete: true,
+              },
+            },
+          },
         },
       },
     });
@@ -27,10 +43,7 @@ export async function GET(
     }
 
     const { userId: clerkId } = await auth();
-    const isOwner = !!clerkId && clerkId === (await prisma.user.findUnique({
-      where: { id: devis.userId },
-      select: { clerkId: true },
-    }))?.clerkId;
+    const isOwner = !!clerkId && clerkId === devis.user.clerkId;
 
     if (!isOwner) {
       if (devis.linkRevoked) {
@@ -41,7 +54,8 @@ export async function GET(
       }
     }
 
-    return NextResponse.json(devis);
+    const { user, ...publicDevis } = devis;
+    return NextResponse.json({ ...publicDevis, user: { settings: user.settings } });
   } catch (err) {
     console.error("[GET /api/public/devis/:id]", err);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
