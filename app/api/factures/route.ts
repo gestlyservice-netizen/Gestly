@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { allocateDocumentNumber } from "@/lib/numbering/document-number";
+import { computeDocumentLines } from "@/lib/documents/totals";
 
 export async function GET() {
   try {
@@ -50,23 +51,14 @@ export async function POST(request: Request) {
     const client = await prisma.client.findFirst({ where: { id: clientId, userId: user.id } });
     if (!client) return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
 
-    // Calculer les lignes et totaux
-    const computedLines = (lines as Record<string, unknown>[]).map((l) => {
-      const qty   = Number(l.quantity)    || 0;
-      const price = Number(l.unitPriceHT) || 0;
-      const tva   = Number(l.tvaRate)     ?? 20;
-      return {
-        description: String(l.description ?? ""),
-        quantity:    qty,
-        unitPriceHT: price,
-        tvaRate:     tva,
-        totalHT:     qty * price,
-      };
-    });
-
-    const totalHT  = computedLines.reduce((s, l) => s + l.totalHT, 0);
-    const totalTVA = computedLines.reduce((s, l) => s + l.totalHT * l.tvaRate / 100, 0);
-    const totalTTC = totalHT + totalTVA;
+    // Lignes validées et totaux arrondis au centime (lib/documents/totals.ts)
+    const computed = computeDocumentLines(lines);
+    if (!computed.ok) return NextResponse.json({ error: computed.error }, { status: 400 });
+    const { lines: computedLines, totalHT, totalTVA, totalTTC } = computed;
+    const due = typeof dueDate === "string" && dueDate ? new Date(dueDate) : null;
+    if (due && Number.isNaN(due.getTime())) {
+      return NextResponse.json({ error: "Date d'échéance invalide" }, { status: 400 });
+    }
 
     // Numéro attribué sous verrou dans la transaction de création
     // (lib/numbering/document-number.ts) : unique, jamais réutilisé, et
@@ -84,7 +76,7 @@ export async function POST(request: Request) {
         totalTVA,
         totalTTC,
         notes:    typeof notes === "string" && notes.trim() ? notes.trim() : null,
-        dueDate:  typeof dueDate === "string" && dueDate ? new Date(dueDate) : null,
+        dueDate:  due,
         lines:    { create: computedLines },
       },
       include: { client: true, lines: true },

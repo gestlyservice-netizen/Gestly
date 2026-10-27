@@ -3,6 +3,7 @@ import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createNotification } from "@/lib/notifications";
 import { deletionRefusal, isDevisInvoiced, modificationRefusal, statusChangeRefusal } from "@/lib/devis/lifecycle";
+import { computeDocumentLines } from "@/lib/documents/totals";
 
 async function getDevisForUser(id: string, userId: string) {
   return prisma.devis.findFirst({
@@ -97,19 +98,9 @@ export async function PUT(
   const client = await prisma.client.findFirst({ where: { id: clientId, userId: user.id } });
   if (!client) return NextResponse.json({ error: "Client introuvable" }, { status: 404 });
 
-  const computedLines = lines.map((l: {
-    description: string; quantity: number; unitPriceHT: number; tvaRate: number;
-  }) => ({
-    description:  l.description,
-    quantity:     Number(l.quantity),
-    unitPriceHT:  Number(l.unitPriceHT),
-    tvaRate:      Number(l.tvaRate),
-    totalHT:      Number(l.quantity) * Number(l.unitPriceHT),
-  }));
-
-  const totalHT  = computedLines.reduce((s, l) => s + l.totalHT, 0);
-  const totalTVA = computedLines.reduce((s, l) => s + l.totalHT * l.tvaRate / 100, 0);
-  const totalTTC = totalHT + totalTVA;
+  const computed = computeDocumentLines(lines);
+  if (!computed.ok) return NextResponse.json({ error: computed.error }, { status: 400 });
+  const { lines: computedLines, totalHT, totalTVA, totalTTC } = computed;
 
   const updated = await prisma.devis.update({
     where: { id: params.id },

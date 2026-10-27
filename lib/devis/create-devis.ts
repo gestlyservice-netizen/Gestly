@@ -1,6 +1,10 @@
 import type { Prisma, PrismaClient, Devis, DevisLine } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { allocateDocumentNumber } from "@/lib/numbering/document-number";
+import { computeDocumentLines } from "@/lib/documents/totals";
+
+type ComputedDocument = Extract<ReturnType<typeof computeDocumentLines>, { ok: true }>;
+const CREATION_STATUSES = ["brouillon", "envoye"];
 
 // Logique métier extraite de app/api/devis/route.ts (POST) — même calcul
 // des totaux, mêmes défauts. Partagée par l'API web et la création de devis
@@ -31,7 +35,7 @@ export interface CreateDevisInput {
 export type DevisWithLines = Devis & { lines: DevisLine[] };
 
 export class CreateDevisError extends Error {
-  constructor(message: string, readonly code: "NO_CLIENT" | "NO_LINES" | "CLIENT_NOT_FOUND") {
+  constructor(message: string, readonly code: "NO_CLIENT" | "NO_LINES" | "INVALID_LINES" | "INVALID_STATUS" | "CLIENT_NOT_FOUND") {
     super(message);
     this.name = "CreateDevisError";
   }
@@ -43,18 +47,26 @@ export async function createDevis(
 ): Promise<DevisWithLines> {
   if (!input.clientId) throw new CreateDevisError("Client requis", "NO_CLIENT");
   if (!input.lines?.length) throw new CreateDevisError("Au moins une ligne requise", "NO_LINES");
+  // À la création, un devis est un brouillon ou marqué envoyé ; les autres
+  // statuts (signé, facturé, payé) ne s'obtiennent que par leur parcours.
+  if (input.status !== undefined && !CREATION_STATUSES.includes(input.status)) {
+    throw new CreateDevisError("Statut de création invalide", "INVALID_STATUS");
+  }
+  const computed = computeDocumentLines(input.lines);
+  if (!computed.ok) throw new CreateDevisError(computed.error, "INVALID_LINES");
 
   // La numérotation exige une transaction (verrou consultatif, cf.
   // lib/numbering/document-number.ts). Appelé sans transaction (API web), on en
   // ouvre une ; appelé avec celle de l'appelant (WhatsApp), on la réutilise.
   if ("$transaction" in tx) {
-    return tx.$transaction((t) => createDevisInTransaction(input, t));
+    return tx.$transaction((t) => createDevisInTransaction(input, computed, t));
   }
-  return createDevisInTransaction(input, tx);
+  return createDevisInTransaction(input, computed, tx);
 }
 
 async function createDevisInTransaction(
   input: CreateDevisInput,
+  { lines: computedLines, totalHT, totalTVA, totalTTC }: ComputedDocument,
   tx: Prisma.TransactionClient
 ): Promise<DevisWithLines> {
   const client = await tx.client.findFirst({ where: { id: input.clientId, userId: input.userId } });
@@ -63,18 +75,6 @@ async function createDevisInTransaction(
   // Numéro attribué sous verrou par artisan, selon les Paramètres (préfixe,
   // prochain n°) ; date de création postérieure au verrou (chronologie).
   const { number, issuedAt } = await allocateDocumentNumber(tx, "devis", input.userId);
-
-  const computedLines = input.lines.map((l) => ({
-    description: l.description,
-    quantity: Number(l.quantity),
-    unitPriceHT: Number(l.unitPriceHT),
-    tvaRate: Number(l.tvaRate),
-    totalHT: Number(l.quantity) * Number(l.unitPriceHT),
-  }));
-
-  const totalHT = computedLines.reduce((acc, l) => acc + l.totalHT, 0);
-  const totalTVA = computedLines.reduce((acc, l) => acc + (l.totalHT * l.tvaRate) / 100, 0);
-  const totalTTC = totalHT + totalTVA;
 
   const status = input.status ?? "brouillon";
 

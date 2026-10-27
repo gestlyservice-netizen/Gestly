@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 // Gestion du lien public de partage : expiration, révocation, régénération.
@@ -10,6 +10,9 @@ export async function PATCH(
 ) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
 
   const devis = await prisma.devis.findFirst({ where: { id: params.id, userId: user.id } });
   if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });

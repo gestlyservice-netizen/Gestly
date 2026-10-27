@@ -6,6 +6,7 @@ import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
+import { previewTotals } from "@/lib/documents/totals";
 import { Plus, Trash2, Loader2, ChevronLeft, Search } from "lucide-react";
 
 const inputCls =
@@ -73,14 +74,8 @@ export default function ModifierDevisPage() {
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
 
-  const lineTotals = (watchedLines ?? []).map((l) =>
-    (Number(l?.quantity) || 0) * (Number(l?.unitPriceHT) || 0)
-  );
-  const totalHT  = lineTotals.reduce((a, b) => a + b, 0);
-  const totalTVA = (watchedLines ?? []).reduce(
-    (acc, l, i) => acc + lineTotals[i] * (Number(l?.tvaRate) || 0) / 100, 0
-  );
-  const totalTTC = totalHT + totalTVA;
+  // Même calcul que le serveur (arrondi au centime, TVA par taux)
+  const { lineTotals, totalHT, totalTVA, totalTTC } = previewTotals(watchedLines);
 
   const fmt = (n: number) =>
     n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
