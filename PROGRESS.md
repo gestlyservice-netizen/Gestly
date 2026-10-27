@@ -4,6 +4,20 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-10-27 — Mission 19 : préparation de la bêta privée (sans envois réels)
+
+Aucun push, aucun déploiement, aucune écriture sur Supabase, aucun secret lu.
+
+- Correctif du lien public présent (`2fc72dc`) et testé (`tests/public-devis.test.ts`, 4/4).
+- **Défaut bloquant corrigé** : avec `OUTBOUND_MODE=simulate` en production, l'artisan voyait « Devis envoyé par email » sans envoi, et les relances étaient marquées envoyées. `isOutboundDisabled()` (`lib/outbound/mode.ts`) : envois de devis, factures et WhatsApp refusés (503, message « Bêta privée »), relances ni simulées ni enregistrées ; plus d'échec de `/api/health` pour ce choix délibéré. 3 tests de régression.
+- **Risque de déploiement corrigé** : cron `/api/whatsapp/process-pending` toutes les 15 min (refusé par Vercel Hobby) → quotidien pendant la bêta.
+- Inventaire des variables (noms uniquement, depuis le code) et procédure complète : `docs/beta-privee.md` (variables Vercel, webhook Stripe de test, déploiement, contrôle, retour arrière, recette de 60 minutes, passage à l'ouverture commerciale).
+- Migrations : `schema.prisma` inchangé depuis leur application (2026-10-23, 0 écart) ; aucune facture créée depuis (C2 sans effet attendu). `main` est un ancêtre de la branche : fusion en avance rapide.
+- Vérification : tsc 0, lint propre, **25 fichiers / 437 tests**, build isolé code 0.
+- Non vérifiable par Claude (garde-fous) : variables réellement présentes dans Vercel, offre Vercel, instance Clerk et mode Stripe de la production.
+
+---
+
 ## 2026-10-27 — Mission 18 : recette Stripe simulée, test d'exécution local, fuite du lien public corrigée
 
 Branche `test/whatsapp-flow`. Aucun push, aucun déploiement, aucune écriture sur Supabase (lectures SQL uniquement), aucun appel à Stripe.
