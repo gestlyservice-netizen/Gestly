@@ -4,6 +4,16 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-11-02 — Mission 24 : déploiement des correctifs, blocage M2 (Stripe)
+
+- Déploiement `dpl_Fqg1B7HQvAhUHVDBdx8ewyzrxYSD` (`0d7d5f7`, push par l'utilisateur) : Ready, build 1 min 24 s, alias www.gestly.fr. Avant : tsc 0, lint propre, 546 tests, build isolé 0, avance rapide depuis `e529cfd`.
+- **M2 en échec** (« Impossible d'ouvrir le paiement ») : journal Production du 2026-11-02 19:04 UTC, `No such price … a similar object exists in live mode, but a test mode key was used`. Cause : `STRIPE_PRICE_ID` (Production) = prix **live**, alors que `STRIPE_SECRET_KEY` est une clé **test** (prouvé par Stripe). Pas un bug du code.
+- Plugin Stripe officiel installé (`stripe@anthropic-plugin-directory`, portée utilisateur ; garde-fous du projet inchangés). Première autorisation OAuth = compte live : arrêt, révocation et reconnexion par l'utilisateur ; connexion vérifiée **test uniquement** (`livemode: false`).
+- Mode test (vide auparavant) : produit **Gestly Pro** `prod_VYYHoVZwxWpXi9`, prix `price_1UXRB9AjwyERxXB2atDH5M8E` (49,00 € / mois, récurrent) ; configuration par défaut du portail client `bpc_1UXRBsAjwyERxXB2f8HbH42R` (résiliation immédiate, moyen de paiement, factures). `STRIPE_PRICE_ID` Production mis à jour (`vercel env update`). Compte live non touché.
+- ⚠️ **Aucun webhook en mode test** : `STRIPE_WEBHOOK_SECRET` (Production) ne peut pas correspondre au mode test. À créer par l'utilisateur dans le tableau de bord (le secret ne doit pas transiter par Claude), puis redéploiement (accord requis).
+
+---
+
 ## 2026-10-27 — Mission 23 : recette accélérée (tests automatisés, anomalies corrigées)
 
 Aucune donnée de Production modifiée, aucun déploiement. Branche `test/whatsapp-flow`, en avance sur `origin/main` (= production).
