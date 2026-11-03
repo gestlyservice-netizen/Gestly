@@ -27,7 +27,7 @@ Préparée le 2026-10-27, après le déploiement `e529cfd` (`dpl_EnZcY9BYN722iwD
 | M3 | Paramètres : raison sociale, SIRET, adresse, conditions de paiement | Enregistré après rechargement | |
 | M4 | **Devis PDF** : client fictif, devis de 2 lignes (`3 × 0,10 €` à 20 % ; `1,5 × 33,33 €` à 10 %) | Aperçu et devis : HT 50,30 €, TVA 5,06 €, TTC 55,36 € ; PDF téléchargé, lisible, avec SIRET et mentions | |
 | M5 | « Envoyer » le devis | Message « Bêta privée… désactivé » | |
-| M6 | **Facture** : devis → signé → « Transformer en facture » ; PDF ; avoir partiel avec motif | `FAC-2026-…` aux mêmes montants ; PDF avec pénalités et indemnité de 40 € ; `AV-2026-…` | |
+| M6 | **Facture** : devis → signé → « Transformer en facture » (échéance préremplie à J+30, modifiable) ; PDF ; avoir partiel avec motif | `FAC-2026-…` aux mêmes montants, échéance affichée ; PDF avec échéance, pénalités et indemnité de 40 € ; `AV-2026-…` ; « Reste à encaisser » diminué de l'avoir | |
 | M7 | **Isolation** : compte B (autre fenêtre privée, paiement test), coller l'URL du devis et de la facture de A | Introuvable, aucune donnée de A ; listes de B vides | |
 | M8 | **Mobile** : téléphone, compte A, menu, liste et création d'un devis, PDF | Utilisable, pas de débordement bloquant | |
 | M9 | Compte B : portail Stripe → annuler l'abonnement | Accès bloqué → `/abonnement` « Abonnement suspendu » | |

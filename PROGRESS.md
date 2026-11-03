@@ -4,6 +4,21 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-11-03 — Mission 28 : échéance obligatoire, retard unifié, robustesse des relances
+
+Décisions de l'utilisateur appliquées. Aucune donnée de Production modifiée, aucune variable Vercel, relances toujours désactivées en Production, `OUTBOUND_MODE=simulate` inchangé, aucun déploiement. Commit `0a4be95` (+ suivi).
+
+- **Échéance obligatoire** des nouvelles factures, préremplie à émission + 30 jours, modifiable, jamais antérieure à l'émission (`parseDueDate`, jour de Paris) : formulaire « Nouvelle facture » (champ requis, minimum = aujourd'hui) et API (400 sinon) ; « Transformer en facture » ouvre une fenêtre avec l'échéance préremplie, et la route applique J+30 si rien n'est envoyé (avant : facture issue d'un devis toujours sans échéance, donc jamais relancée). Correction au passage : le formulaire calculait les dates en UTC (veille entre minuit et 1–2 h).
+- **Anciennes factures sans échéance** : jamais « En retard », jamais relancées (données inchangées).
+- **Retard unifié** (`lib/factures/echeance.ts`, `statutFacture` / `joursDeRetard`) : en retard à partir du lendemain de l'échéance tant qu'il reste un montant à encaisser. Avant, trois règles : liste et fiche (échéance dépassée d'une seconde, ou 30 jours après l'émission sans échéance), tableau de bord (« J+N » depuis l'émission, rouge après 30 jours). Désormais liste, fiche (« En retard de N j »), tableau de bord (colonne « Échéance » : date, « Retard N j » ou « Sans échéance ») et relances partagent le même calcul.
+- **Activation tardive** : seul le niveau atteint est envoyé, sans rattrapage (testé : facture à 25 jours → J3 seulement, sur email et SMS, jamais J1/J2 ensuite).
+- **Anti-doublon et pannes** (tests ajoutés) : 3 exécutions simultanées sur 3 factures et 2 canaux → 6 relances, chacune une fois ; nouvelle tentative d'un échec lancée par 2 exécutions simultanées → un seul renvoi ; base indisponible au moment d'enregistrer un échec → relance laissée « en_cours », ni renvoyée ni bloquée, reprise après 1 h.
+- **Limite connue** : si le processus s'arrête net entre l'envoi effectif et son enregistrement, la relance sera renvoyée une fois après 1 h (choix « au moins une fois » plutôt qu'une relance perdue).
+- Tests : `lib/factures/echeance.test.ts` (7), routes (4 : échéance absente, invalide ou passée refusée sans consommer de numéro ; échéance modifiée conservée ; transformation à J+30 par défaut ; échéance choisie ou refusée), moteur (5). Tests existants mis à jour pour fournir l'échéance.
+- Vérification : tsc 0, lint propre, **32 fichiers / 617 tests**, build isolé code 0.
+
+---
+
 ## 2026-11-03 — Mission 27 : audit M13 du moteur de relances
 
 Aucune donnée de Production modifiée (lecture seule), aucun envoi réel, aucun déploiement. Commit `337151c` (son message indique 34 tests : la suite en compte 31).
