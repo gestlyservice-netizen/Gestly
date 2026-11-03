@@ -7,6 +7,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { summarizeOutstanding } from "@/lib/factures/balance";
 
 /* ── Helpers ────────────────────────────────────────────── */
 const fmt = (n: number | null) =>
@@ -34,9 +35,8 @@ export default async function DashboardPage() {
     signesMoisCount,
     caFactureMoisAgg,
     avoirsMoisAgg,
-    impayesAgg,
     derniersDevis,
-    facturesEnAttente,
+    facturesNonPayees,
   ] = await Promise.all([
     prisma.devis.count({
       where: { userId: user.id, status: "envoye" },
@@ -52,10 +52,6 @@ export default async function DashboardPage() {
       where: { userId: user.id, createdAt: { gte: startOfMonth } },
       _sum: { totalTTC: true },
     }),
-    prisma.facture.aggregate({
-      where: { userId: user.id, paidAt: null },
-      _sum: { totalTTC: true },
-    }),
     prisma.devis.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
@@ -69,19 +65,25 @@ export default async function DashboardPage() {
         client:   { select: { name: true } },
       },
     }),
+    // Toutes les factures non payées, avec leurs avoirs : les impayés et la
+    // liste « en attente » sont nets des avoirs (lib/factures/balance.ts).
     prisma.facture.findMany({
       where:   { userId: user.id, paidAt: null },
       orderBy: { createdAt: "asc" },
-      take:    10,
       select: {
         id:        true,
         number:    true,
+        status:    true,
         totalTTC:  true,
         createdAt: true,
         client:    { select: { name: true } },
+        avoirs:    { select: { totalTTC: true } },
       },
     }),
   ]);
+
+  const impayes = summarizeOutstanding(facturesNonPayees);
+  const facturesEnAttente = impayes.pending.slice(0, 10).map((p) => ({ ...p.facture, outstanding: p.outstanding }));
 
   const stats = [
     {
@@ -113,8 +115,8 @@ export default async function DashboardPage() {
     },
     {
       title:       "Impayés",
-      value:       `${fmt(impayesAgg._sum.totalTTC)} €`,
-      description: "Factures non réglées",
+      value:       `${fmt(impayes.total)} €`,
+      description: "Reste à encaisser, net des avoirs",
       icon:        AlertCircle,
       iconBg:      "bg-red-50",
       iconColor:   "text-red-600",
@@ -308,7 +310,7 @@ export default async function DashboardPage() {
                         <tr key={f.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
                           <td className="px-5 py-3 font-mono text-blue-600 font-semibold text-xs">{f.number}</td>
                           <td className="px-4 py-3 text-slate-800 font-medium truncate max-w-[120px]">{f.client.name}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-slate-900 tabular-nums">{fmt(f.totalTTC)}&nbsp;€</td>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-900 tabular-nums">{fmt(f.outstanding)}&nbsp;€</td>
                           <td className="px-4 py-3 text-right">
                             <span className={`text-xs font-semibold ${retard ? "text-red-600" : "text-slate-500"}`}>
                               J+{jours}

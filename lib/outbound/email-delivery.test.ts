@@ -285,6 +285,26 @@ describe("relances (email)", () => {
     expect(summary).toMatchObject({ sent: 1, failed: 0 });
     expect(mocks.Resend).not.toHaveBeenCalled();
   });
+
+  it("[régression] avoir partiel : la relance réclame le reste dû, pas le TTC d'origine", async () => {
+    live();
+    mocks.resendSend.mockResolvedValue(RESEND_OK);
+    const [facture] = await mocks.prisma.facture.findMany();
+    mocks.prisma.facture.findMany.mockResolvedValue([{ ...facture, avoirs: [{ totalTTC: 20 }] }]);
+    await runRelancesCheck();
+    const text = mocks.resendSend.mock.calls[0][0].text as string;
+    expect(text).toContain("100,00 €");
+    expect(text).not.toContain("120,00 €");
+  });
+
+  it("[régression] avoirs partiels couvrant toute la facture : aucune relance (avant : seul l'avoir « total » était reconnu)", async () => {
+    live();
+    const [facture] = await mocks.prisma.facture.findMany();
+    mocks.prisma.facture.findMany.mockResolvedValue([{ ...facture, avoirs: [{ totalTTC: 70 }, { totalTTC: 50 }] }]);
+    const summary = await runRelancesCheck();
+    expect(summary).toMatchObject({ sent: 0, skipped: 1 });
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
 });
 
 describe("GET /api/admin/ovh-balance/check (alerte email)", () => {

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { allocateDocumentNumber } from "@/lib/numbering/document-number";
+import { computeTotals } from "@/lib/documents/totals";
+import { factureBalance } from "@/lib/factures/balance";
 
 // Un avoir corrige une facture SANS jamais la modifier ni la supprimer —
 // seule voie légale de correction d'une facture déjà émise en France.
@@ -54,6 +56,7 @@ export async function POST(
   const avoirType = type === "partiel" ? "partiel" : "total";
 
   let lines: { description: string; quantity: number; unitPriceHT: number; tvaRate: number; totalHT: number }[];
+  let totals: { totalHT: number; totalTVA: number; totalTTC: number };
   if (avoirType === "total") {
     const sourceLines = facture.lines.length > 0 ? facture.lines : facture.devis?.lines ?? [];
     lines = sourceLines.map((l) => ({
@@ -66,6 +69,10 @@ export async function POST(
     if (lines.length === 0) {
       return NextResponse.json({ error: "Aucune ligne à créditer sur cette facture" }, { status: 400 });
     }
+    // Avoir intégral = exactement les montants de la facture (un recalcul
+    // depuis les lignes pouvait différer d'un centime et le solde ne tombait
+    // alors pas à zéro).
+    totals = { totalHT: facture.totalHT, totalTVA: facture.totalTVA, totalTTC: facture.totalTTC };
   } else {
     const ht = Number(unitPriceHT);
     const tva = Number(tvaRate);
@@ -75,18 +82,23 @@ export async function POST(
     if (!Number.isFinite(ht) || ht <= 0) {
       return NextResponse.json({ error: "Montant HT invalide" }, { status: 400 });
     }
+    const rate = Number.isFinite(tva) ? tva : 20;
+    if (rate < 0 || rate > 100) {
+      return NextResponse.json({ error: "Taux de TVA invalide" }, { status: 400 });
+    }
+    // Montants au centime, même calcul que les devis et factures.
+    const { lineTotals, ...computed } = computeTotals([{ quantity: 1, unitPriceHT: ht, tvaRate: rate }]);
     lines = [{
       description: description.trim(),
       quantity: 1,
       unitPriceHT: ht,
-      tvaRate: Number.isFinite(tva) ? tva : 20,
-      totalHT: ht,
+      tvaRate: rate,
+      totalHT: lineTotals[0],
     }];
+    totals = computed;
   }
 
-  const totalHT = lines.reduce((s, l) => s + l.totalHT, 0);
-  const totalTVA = lines.reduce((s, l) => s + (l.totalHT * l.tvaRate) / 100, 0);
-  const totalTTC = totalHT + totalTVA;
+  const { totalHT, totalTVA, totalTTC } = totals;
 
   // Une seule transaction : numéro (sous verrou par artisan, ce qui
   // sérialise aussi les avoirs concurrents sur une même facture), contrôle
@@ -97,8 +109,7 @@ export async function POST(
       const { number, issuedAt } = await allocateDocumentNumber(tx, "avoir", user.id);
 
       const previous = await tx.avoir.findMany({ where: { factureId: facture.id, userId: user.id }, select: { totalTTC: true } });
-      const alreadyCredited = previous.reduce((s, a) => s + a.totalTTC, 0);
-      const remaining = facture.totalTTC - alreadyCredited;
+      const remaining = factureBalance({ ...facture, avoirs: previous }).net;
       if (avoirType === "total" && previous.length > 0) {
         throw new AvoirRuleError(
           "Cette facture a déjà fait l'objet d'un avoir : créez un avoir partiel pour le solde restant."
@@ -106,7 +117,7 @@ export async function POST(
       }
       if (totalTTC > remaining + CENT_TOLERANCE) {
         throw new AvoirRuleError(
-          `Le montant de l'avoir (${totalTTC.toFixed(2)} € TTC) dépasse le montant restant à créditer sur la facture (${Math.max(0, remaining).toFixed(2)} € TTC).`
+          `Le montant de l'avoir (${totalTTC.toFixed(2)} € TTC) dépasse le montant restant à créditer sur la facture (${remaining.toFixed(2)} € TTC).`
         );
       }
 

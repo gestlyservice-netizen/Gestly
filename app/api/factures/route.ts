@@ -15,7 +15,8 @@ export async function GET() {
     const factures = await prisma.facture.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
-      include: { client: { select: { name: true } } },
+      // Avoirs : l'écran Factures calcule les impayés nets (lib/factures/balance.ts).
+      include: { client: { select: { name: true } }, avoirs: { select: { totalTTC: true } } },
     });
 
     return NextResponse.json(factures);

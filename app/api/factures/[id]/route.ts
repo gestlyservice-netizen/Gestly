@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { factureBalance } from "@/lib/factures/balance";
 
 export async function GET(
   _req: Request,
@@ -70,6 +71,7 @@ export async function PATCH(
 
     const facture = await prisma.facture.findFirst({
       where: { id: params.id, userId: user.id },
+      include: { avoirs: { select: { totalTTC: true } } },
     });
     if (!facture) {
       return NextResponse.json({ error: "Facture introuvable" }, { status: 404 });
@@ -78,6 +80,14 @@ export async function PATCH(
     const body = await request.json() as { action?: string };
 
     if (body.action === "mark_paid") {
+      // Soldée par avoir : le client ne doit plus rien, aucun paiement à enregistrer.
+      if (facture.status !== "payee" && factureBalance(facture).fullyCredited) {
+        return NextResponse.json(
+          { error: "Cette facture est entièrement soldée par avoir : aucun paiement à enregistrer." },
+          { status: 409 }
+        );
+      }
+
       const updated = await prisma.facture.update({
         where: { id: params.id },
         data:  { status: "payee", paidAt: new Date() },

@@ -12,7 +12,9 @@ vi.mock("@/lib/prisma", async () => ({ prisma: (await import("@/tests/support/fa
 vi.mock("@clerk/nextjs/server", () => ({ auth: vi.fn(async () => ({ userId: h.clerkUserId })), currentUser: vi.fn(async () => null) }));
 
 import { fakePrisma } from "@/tests/support/fake-prisma";
-import { POST as createFacture } from "@/app/api/factures/route";
+import { GET as listFactures, POST as createFacture } from "@/app/api/factures/route";
+import { PATCH as patchFacture } from "@/app/api/factures/[id]/route";
+import { summarizeOutstanding } from "@/lib/factures/balance";
 import { POST as toFacture } from "@/app/api/devis/[id]/to-facture/route";
 import { POST as createAvoir } from "@/app/api/factures/[id]/avoir/route";
 import { POST as createDevisWeb } from "@/app/api/devis/route";
@@ -148,6 +150,25 @@ describe("avoirs — numérotation et règles de correction", () => {
     ]);
     expect(responses.map((r) => r.status).sort()).toEqual([201, 409]);
     expect(rows("avoir")).toHaveLength(1);
+  });
+
+  it("[régression] avoir partiel arrondi au centime (avant : 10,555 € HT → TTC 12,666 enregistré)", async () => {
+    const facture = seedFacture(userA.id, num("FAC", 1), 100);
+    as(userA);
+    const res = await createAvoir(post({ type: "partiel", reason: "Remise", description: "Remise", unitPriceHT: 10.555, tvaRate: 20 }), ctx(facture.id));
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ totalHT: 10.56, totalTVA: 2.11, totalTTC: 12.67 });
+  });
+
+  it("[régression] avoir intégral = montants exacts de la facture, même si ses lignes recalculées diffèrent d'un centime", async () => {
+    // Facture de l'ancien calcul (2026-10) : 55,35 € TTC enregistré, lignes qui donneraient 55,36 €.
+    const facture = seed("facture", { userId: userA.id, clientId: clientA.id, number: num("FAC", 1), totalHT: 50.295, totalTVA: 5.0595, totalTTC: 55.35 });
+    seed("factureLine", { factureId: facture.id, description: "A", quantity: 3, unitPriceHT: 0.1, tvaRate: 20, totalHT: 0.3 });
+    seed("factureLine", { factureId: facture.id, description: "B", quantity: 1.5, unitPriceHT: 33.33, tvaRate: 10, totalHT: 49.995 });
+    as(userA);
+    const res = await createAvoir(post({ type: "total", reason: "Annulation" }), ctx(facture.id));
+    expect(res.status).toBe(201);
+    expect((await res.json()).totalTTC).toBe(55.35);
   });
 
   it("avoirs concurrents sur des factures différentes : numéros uniques", async () => {
@@ -356,5 +377,57 @@ describe("D6 — une facture émise ne change pas", () => {
   it("seul « payé » reste possible pour un devis facturé", async () => {
     const { devis } = await invoicedDevis();
     expect((await patchDevis(post({ status: "paye" }), ctx(devis.id))).status).toBe(200);
+  });
+});
+
+describe("impayés nets des avoirs (recette V1, constaté en production le 2026-11-03)", () => {
+  const twoInvoices = () => {
+    // FAC-001 et FAC-002 à 55,36 € TTC (devis de la recette M4), émises.
+    const make = (seq: number) => seed("facture", {
+      userId: userA.id, clientId: clientA.id, number: num("FAC", seq), status: "emise",
+      totalHT: 50.3, totalTVA: 5.06, totalTTC: 55.36,
+    });
+    const f1 = make(1);
+    const f2 = make(2);
+    for (const f of [f1, f2]) seed("factureLine", { factureId: f.id, description: "Prestation", quantity: 1, unitPriceHT: 50.3, tvaRate: 10, totalHT: 50.3 });
+    return [f1, f2];
+  };
+
+  it("[régression] avoir intégral sur FAC-002 : 55,36 € à encaisser, une seule facture en attente (avant : 110,72 €)", async () => {
+    const [, f2] = twoInvoices();
+    as(userA);
+    expect((await createAvoir(post({ type: "total", reason: "Annulation" }), ctx(f2.id))).status).toBe(201);
+
+    const factures = await (await listFactures()).json();
+    expect(factures.find((f: { id: string }) => f.id === f2.id).avoirs).toEqual([{ totalTTC: 55.36 }]);
+    const impayes = summarizeOutstanding(factures);
+    expect(impayes.total).toBe(55.36);
+    expect(impayes.pending.map((p) => (p.facture as { number: string }).number)).toEqual([num("FAC", 1)]);
+  });
+
+  it("[régression] facture soldée par avoir : « marquer payée » refusé (409), aucun paiement enregistré", async () => {
+    const [, f2] = twoInvoices();
+    as(userA);
+    await createAvoir(post({ type: "total", reason: "Annulation" }), ctx(f2.id));
+    const res = await patchFacture(new Request("http://localhost/x", { method: "PATCH", body: JSON.stringify({ action: "mark_paid" }) }), ctx(f2.id));
+    expect(res.status).toBe(409);
+    expect(rows("facture").find((f) => f.id === f2.id)).toMatchObject({ status: "emise", paidAt: null });
+  });
+
+  it("avoir partiel : reste à encaisser = solde ; la facture peut être marquée payée, puis ne compte plus", async () => {
+    const [f1] = twoInvoices();
+    as(userA);
+    await createAvoir(post({ type: "partiel", reason: "Geste", description: "Remise", unitPriceHT: 10, tvaRate: 20 }), ctx(f1.id)); // 12 € TTC
+    expect(summarizeOutstanding(await (await listFactures()).json()).total).toBe(98.72); // 43,36 + 55,36
+
+    const res = await patchFacture(new Request("http://localhost/x", { method: "PATCH", body: JSON.stringify({ action: "mark_paid" }) }), ctx(f1.id));
+    expect(res.status).toBe(200);
+    expect(summarizeOutstanding(await (await listFactures()).json()).total).toBe(55.36);
+  });
+
+  it("isolation : les avoirs d'un autre artisan n'apparaissent pas dans la liste", async () => {
+    twoInvoices();
+    as(userB);
+    expect(await (await listFactures()).json()).toEqual([]);
   });
 });

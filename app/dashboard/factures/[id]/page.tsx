@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { factureBalance } from "@/lib/factures/balance";
 
 /* ── Types ──────────────────────────────────────────────── */
 interface Line {
@@ -76,8 +77,9 @@ const fmt = (n: number) =>
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("fr-FR") : "—";
 
-function getDisplayStatus(f: Facture): { label: string; cls: string } {
+function getDisplayStatus(f: Facture, fullyCredited: boolean): { label: string; cls: string } {
   if (f.status === "payee") return { label: "Payée", cls: "bg-green-100 text-green-700" };
+  if (fullyCredited) return { label: "Soldée par avoir", cls: "bg-slate-100 text-slate-600" };
   if (f.dueDate && new Date(f.dueDate) < new Date())
     return { label: "En retard", cls: "bg-red-100 text-red-600" };
   const daysSince = (Date.now() - new Date(f.createdAt).getTime()) / 86_400_000;
@@ -306,7 +308,8 @@ export default function FactureDetailPage() {
     );
   }
 
-  const status = getDisplayStatus(facture);
+  const balance = factureBalance({ ...facture, avoirs });
+  const status = getDisplayStatus(facture, balance.fullyCredited);
   /* Priorité : lignes propres de la facture, sinon lignes du devis lié */
   const lines = (facture.lines ?? []).length > 0
     ? facture.lines
@@ -363,7 +366,7 @@ export default function FactureDetailPage() {
             Créer un avoir
           </button>
 
-          {facture.status !== "payee" && (
+          {facture.status !== "payee" && !balance.fullyCredited && (
             <button
               onClick={markAsPaid}
               disabled={paying}
@@ -504,6 +507,20 @@ export default function FactureDetailPage() {
               <span className="font-bold text-slate-900">Total TTC</span>
               <span className="text-xl font-bold text-blue-600 tabular-nums">{fmt(facture.totalTTC)}&nbsp;€</span>
             </div>
+            {balance.credited > 0 && (
+              <>
+                <div className="flex justify-between text-sm text-slate-600">
+                  <span>Avoirs</span>
+                  <span className="font-medium text-slate-900 tabular-nums">-{fmt(balance.credited)}&nbsp;€</span>
+                </div>
+                {facture.status !== "payee" && (
+                  <div className="flex justify-between text-sm font-semibold text-slate-900">
+                    <span>Reste à encaisser</span>
+                    <span className="tabular-nums">{fmt(balance.outstanding)}&nbsp;€</span>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>

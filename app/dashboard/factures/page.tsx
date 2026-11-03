@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { factureBalance, summarizeOutstanding } from "@/lib/factures/balance";
 
 interface Facture {
   id:        string;
@@ -18,6 +19,7 @@ interface Facture {
   dueDate:   string | null;
   paidAt:    string | null;
   client:    { name: string };
+  avoirs?:   { totalTTC: number }[];
 }
 
 const fmt = (n: number) =>
@@ -28,6 +30,7 @@ const fmtDate = (d: string | null) =>
 
 function getDisplayStatus(f: Facture): { label: string; cls: string } {
   if (f.status === "payee") return { label: "Payée", cls: "bg-green-100 text-green-700" };
+  if (factureBalance(f).fullyCredited) return { label: "Soldée par avoir", cls: "bg-slate-100 text-slate-600" };
   const ref = f.dueDate ?? f.createdAt;
   const daysSince = (Date.now() - new Date(ref).getTime()) / 86_400_000;
   if (daysSince > 0 && f.dueDate) return { label: "En retard", cls: "bg-red-100 text-red-600" };
@@ -50,17 +53,17 @@ export default function FacturesPage() {
 
   const now           = new Date();
   const startOfMonth  = new Date(now.getFullYear(), now.getMonth(), 1);
-  const emises        = factures.filter((f) => f.status === "emise");
+  // Impayés nets des avoirs : une facture soldée par avoir n'est plus à encaisser.
+  const impayes       = summarizeOutstanding(factures);
   const payesMois     = factures.filter(
     (f) => f.status === "payee" && f.paidAt && new Date(f.paidAt) >= startOfMonth
   );
-  const impayesTTC    = emises.reduce((s, f) => s + f.totalTTC, 0);
   const caPayeMois    = payesMois.reduce((s, f) => s + f.totalTTC, 0);
 
   const stats = [
     {
       title:       "Factures émises",
-      value:       String(emises.length),
+      value:       String(impayes.count),
       description: "En attente de paiement",
       icon:        Clock,
       iconBg:      "bg-blue-50",
@@ -84,8 +87,8 @@ export default function FacturesPage() {
     },
     {
       title:       "Impayés",
-      value:       `${fmt(impayesTTC)} €`,
-      description: "Total TTC à encaisser",
+      value:       `${fmt(impayes.total)} €`,
+      description: "TTC à encaisser, net des avoirs",
       icon:        AlertCircle,
       iconBg:      "bg-red-50",
       iconColor:   "text-red-600",

@@ -6,6 +6,7 @@ import { isSubscriptionBlocked } from "@/lib/auth";
 import { sendSMS } from "@/lib/sms";
 import { getOvhSmsBalance } from "@/lib/ovh-balance";
 import { renderMessage } from "./messages";
+import { factureBalance } from "@/lib/factures/balance";
 import { createNotification, createNotificationOnce } from "@/lib/notifications";
 
 const MAX_ATTEMPTS = 5;
@@ -47,7 +48,7 @@ export async function runRelancesCheck(): Promise<RelancesSummary> {
         status: { not: "payee" },
         dueDate: { not: null, lt: new Date() },
       },
-      include: { client: true, avoirs: { select: { type: true } } },
+      include: { client: true, avoirs: { select: { totalTTC: true } } },
     });
 
     let smsBalance: number | null | undefined = undefined; // undefined = pas encore vérifié ce run
@@ -55,8 +56,10 @@ export async function runRelancesCheck(): Promise<RelancesSummary> {
     for (const facture of factures) {
       summary.facturesChecked++;
 
-      const hasFullAvoir = facture.avoirs.some((a) => a.type === "total");
-      if (hasFullAvoir) {
+      // Soldée par avoir (avoir total, ou partiels couvrant tout le TTC) : plus
+      // rien à réclamer. Sinon, on ne réclame que le reste dû.
+      const { outstanding } = factureBalance(facture);
+      if (outstanding <= 0) {
         summary.skipped++;
         continue;
       }
@@ -79,7 +82,7 @@ export async function runRelancesCheck(): Promise<RelancesSummary> {
         clientName: facture.client.name,
         companyName: user.companyName,
         number: facture.number,
-        amount: fmtAmount(facture.totalTTC),
+        amount: fmtAmount(outstanding),
         daysLate: joursRetard,
       };
 
