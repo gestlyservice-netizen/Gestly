@@ -400,9 +400,9 @@ describe("impayés nets des avoirs (recette V1, constaté en production le 2026-
 
     const factures = await (await listFactures()).json();
     expect(factures.find((f: { id: string }) => f.id === f2.id).avoirs).toEqual([{ totalTTC: 55.36 }]);
-    const impayes = summarizeOutstanding(factures);
+    const impayes = summarizeOutstanding(factures as { number: string; totalTTC: number; status: string; avoirs: { totalTTC: number }[] }[]);
     expect(impayes.total).toBe(55.36);
-    expect(impayes.pending.map((p) => (p.facture as { number: string }).number)).toEqual([num("FAC", 1)]);
+    expect(impayes.pending.map((p) => p.facture.number)).toEqual([num("FAC", 1)]);
   });
 
   it("[régression] facture soldée par avoir : « marquer payée » refusé (409), aucun paiement enregistré", async () => {

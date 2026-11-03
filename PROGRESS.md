@@ -4,6 +4,20 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-11-03 — Mission 26 : avoirs dans les indicateurs financiers
+
+Aucune donnée de Production modifiée (lecture seule), aucun déploiement. Commits `1fb762b`, puis suivi.
+
+- **Constat (production, lecture SQL)** : FAC-2026-001 et FAC-2026-002 à 55,36 € « emise », AV-2026-001 avoir total de 55,36 € sur FAC-2026-002. Écran Factures : 110,72 € d'impayés au lieu de **55,36 €**.
+- **Cause** : les impayés additionnaient le TTC brut des factures non payées (écran Factures : `status === "emise"` ; tableau de bord : agrégat `paidAt: null`) sans jamais lire les avoirs. Même défaut dans la liste « Factures en attente » du tableau de bord. Relances : seul un avoir de type « total » était reconnu (des avoirs partiels couvrant toute la facture laissaient partir des relances) et le montant réclamé était le TTC d'origine. Avoir partiel non arrondi au centime ; avoir intégral recalculé depuis les lignes (pouvait différer d'un centime de la facture, solde jamais nul).
+- **Correct déjà** : « CA facturé ce mois » du tableau de bord = factures du mois − avoirs du mois (CA net à la date d'émission de l'avoir). « CA encaissé » de l'écran Factures = paiements reçus (brut), inchangé.
+- **Correction** : `lib/factures/balance.ts` (centimes) : reste à encaisser = TTC − Σ avoirs (≥ 0), 0 si payée (avoir après paiement = remboursement, pas un impayé) ; « soldée par avoir » si net nul. Utilisé par l'écran Factures (API liste avec avoirs), le tableau de bord (impayés + liste en attente avec le reste dû), la fiche facture (lignes « Avoirs » et « Reste à encaisser », statut « Soldée par avoir », bouton « Marquer comme payée » masqué), `PATCH mark_paid` (409 si soldée par avoir), relances (ignorées si soldée, montant = reste dû), contrôle de plafond des avoirs. Avoir partiel via `computeTotals` ; avoir intégral = montants exacts de la facture.
+- **Tests** : `lib/factures/balance.test.ts` (9 : sans avoir, intégral, partiel, partiels cumulés, payée avec avoir, jamais négatif, cas de production) ; routes réelles sur base en mémoire (6 : cas de production 55,36 €, `mark_paid` refusé, partiel puis payée, isolement, arrondi de l'avoir partiel, avoir intégral sur facture de l'ancien calcul) ; relances (2 : montant = reste dû, partiels couvrant tout = aucune relance).
+- Vérification : tsc 0, lint propre, **30 fichiers / 570 tests**, build isolé code 0.
+- **Reste** : déploiement (accord requis), puis contrôle en production (Factures et tableau de bord : 55,36 € ; FAC-2026-002 « Soldée par avoir »).
+
+---
+
 ## 2026-11-03 — Mission 25 : téléchargement PDF des devis et factures (recette M4)
 
 Aucune donnée de Production modifiée, aucun déploiement. Commit `3392177`.
