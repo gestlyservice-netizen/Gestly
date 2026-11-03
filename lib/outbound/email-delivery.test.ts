@@ -30,7 +30,10 @@ vi.mock("resend", () => ({ Resend: mocks.Resend }));
 vi.mock("@/lib/prisma", () => ({ prisma: mocks.prisma }));
 vi.mock("@/lib/auth", () => ({ getCurrentUser: mocks.getCurrentUser, isSubscriptionBlocked: () => false }));
 vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
-vi.mock("@/lib/pdf/generate-document-pdf", () => ({ generateDocumentPdfBuffer: mocks.generatePdf }));
+vi.mock("@/lib/pdf/generate-document-pdf", () => ({
+  generateDocumentPdfBuffer: mocks.generatePdf,
+  generateFacturePdfBuffer: mocks.generatePdf,
+}));
 vi.mock("@/lib/notifications", () => ({ createNotification: mocks.createNotification, createNotificationOnce: vi.fn() }));
 vi.mock("@/lib/sms/ovh-client", () => ({ createOvhClient: vi.fn() }));
 vi.mock("@sentry/nextjs", () => ({ captureMessage: vi.fn() }));

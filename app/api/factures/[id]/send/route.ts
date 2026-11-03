@@ -3,10 +3,7 @@ import { sendEmail } from "@/lib/outbound/email";
 import { isOutboundDisabled, OUTBOUND_DISABLED_MESSAGE } from "@/lib/outbound/mode";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { generateDocumentPdfBuffer } from "@/lib/pdf/generate-document-pdf";
-
-const fmtDate = (d: Date | string | null) =>
-  d ? new Date(d).toLocaleDateString("fr-FR") : "—";
+import { generateFacturePdfBuffer } from "@/lib/pdf/generate-document-pdf";
 
 export async function POST(
   request: Request,
@@ -42,21 +39,7 @@ export async function POST(
 
   let pdfBuffer: Buffer;
   try {
-    pdfBuffer = generateDocumentPdfBuffer({
-      docTypeLabel: "FACTURE",
-      number: facture.number,
-      metaLines: [
-        { label: "Date", value: fmtDate(facture.createdAt) },
-        ...(facture.dueDate ? [{ label: "Échéance", value: fmtDate(facture.dueDate) }] : []),
-      ],
-      client: facture.client,
-      lines,
-      totalHT: facture.totalHT,
-      totalTVA: facture.totalTVA,
-      totalTTC: facture.totalTTC,
-      notes: facture.notes,
-      settings,
-    });
+    pdfBuffer = generateFacturePdfBuffer(facture, lines, facture.client, settings);
   } catch (err) {
     console.error("[POST /api/factures/:id/send] Génération PDF:", err);
     return NextResponse.json({ error: "Échec de la génération du PDF" }, { status: 500 });

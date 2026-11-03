@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { Loader2, Printer } from "lucide-react";
 import { documentLegalMentions } from "@/lib/documents/legal-mentions";
 
@@ -59,14 +59,10 @@ const fmtDate = (d: string | null) =>
 /* ── Page ───────────────────────────────────────────────── */
 export default function PrintFacturePage() {
   const { id }        = useParams<{ id: string }>();
-  const searchParams  = useSearchParams();
-  const autoDownload  = searchParams.get("download") === "1";
 
   const [facture,     setFacture]     = useState<Facture | null>(null);
   const [settings,    setSettings]    = useState<Settings | null>(null);
   const [loading,     setLoading]     = useState(true);
-  const [downloading, setDownloading] = useState(false);
-  const docRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     Promise.all([
@@ -80,29 +76,8 @@ export default function PrintFacturePage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  useEffect(() => {
-    if (!loading && facture && autoDownload && docRef.current) {
-      const el = docRef.current;
-      setDownloading(true);
-      const timer = setTimeout(async () => {
-        try {
-          const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-            import("html2canvas"),
-            import("jspdf"),
-          ]);
-          const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
-          const imgData = canvas.toDataURL("image/jpeg", 0.95);
-          const pdf = new jsPDF({ unit: "px", format: [canvas.width / 2, canvas.height / 2] });
-          pdf.addImage(imgData, "JPEG", 0, 0, canvas.width / 2, canvas.height / 2);
-          pdf.save(`facture-${facture!.number}.pdf`);
-        } finally {
-          setDownloading(false);
-          window.close();
-        }
-      }, 800);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, facture, autoDownload]);
+  // Le téléchargement du PDF passe par /api/factures/[id]/pdf (bouton « PDF »
+  // du dashboard) : cette page ne sert plus qu'à l'aperçu et à l'impression.
 
   if (loading) {
     return (
@@ -128,30 +103,21 @@ export default function PrintFacturePage() {
 
   return (
     <>
-      {!autoDownload && (
-        <div className="print:hidden fixed top-0 left-0 right-0 z-10 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
-          <button onClick={() => window.close()} className="text-sm text-slate-600 hover:text-slate-900">
-            ← Fermer
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-          >
-            <Printer className="h-4 w-4" />
-            Télécharger / Imprimer PDF
-          </button>
-        </div>
-      )}
+      <div className="print:hidden fixed top-0 left-0 right-0 z-10 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+        <button onClick={() => window.close()} className="text-sm text-slate-600 hover:text-slate-900">
+          ← Fermer
+        </button>
+        <button
+          onClick={() => window.print()}
+          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+        >
+          <Printer className="h-4 w-4" />
+          Télécharger / Imprimer PDF
+        </button>
+      </div>
 
-      {downloading && (
-        <div className="fixed inset-0 z-50 bg-white/80 flex flex-col items-center justify-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <p className="text-sm text-slate-600">Génération du PDF…</p>
-        </div>
-      )}
-
-      <div className={`${autoDownload ? "" : "print:pt-0 pt-16"} bg-slate-100 min-h-screen print:bg-white`}>
-        <div ref={docRef} className="max-w-[794px] mx-auto bg-white print:shadow-none shadow-xl my-8 print:my-0 print:max-w-full">
+      <div className="print:pt-0 pt-16 bg-slate-100 min-h-screen print:bg-white">
+        <div className="max-w-[794px] mx-auto bg-white print:shadow-none shadow-xl my-8 print:my-0 print:max-w-full">
           <div className="p-12 print:p-8">
 
             {/* ── En-tête ──────────────────────────────────── */}

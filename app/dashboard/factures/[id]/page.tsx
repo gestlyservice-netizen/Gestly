@@ -7,7 +7,6 @@ import {
   ChevronLeft, Loader2, User, Calendar,
   FileText, Download, Send, CheckCircle, Undo2,
 } from "lucide-react";
-import { generateFacturePDF } from "@/lib/generate-pdf";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -338,13 +337,15 @@ export default function FactureDetailPage() {
 
         {/* Boutons d'action */}
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => generateFacturePDF(facture.id)}
+          {/* Lien direct : la route renvoie le fichier en pièce jointe (aucune popup). */}
+          <a
+            href={`/api/factures/${facture.id}/pdf`}
+            download={`facture-${facture.number}.pdf`}
             className="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-sm font-medium px-3.5 py-2 rounded-lg transition-colors"
           >
             <Download className="h-4 w-4" />
             PDF
-          </button>
+          </a>
 
           <button
             onClick={openSendDialog}

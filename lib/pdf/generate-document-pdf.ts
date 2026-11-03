@@ -77,6 +77,10 @@ const fmt = (n: number) =>
     .toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     .replace(/[  ]/g, " ");
 
+// Quantité au format français, sans zéros inutiles : « 1,5 » et non « 1.5 ».
+const fmtQty = (n: number) =>
+  n.toLocaleString("fr-FR", { maximumFractionDigits: 3 }).replace(/ /g, " ");
+
 // Mise en page A4 (mm) : le contenu s'arrête au-dessus du pied de page
 // (filet à FOOTER_Y - 6, mentions légales dessous), présent sur chaque page.
 const PAGE_TOP = 20;
@@ -204,7 +208,7 @@ export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
     const desc = doc.splitTextToSize(line.description, colWidths[0] - 4)[0] as string;
     doc.text(desc, colX[0] + 2, y + 4.8);
     doc.setTextColor(90, 90, 90);
-    doc.text(String(line.quantity), colX[1] + colWidths[1] - 2, y + 4.8, { align: "right" });
+    doc.text(fmtQty(line.quantity), colX[1] + colWidths[1] - 2, y + 4.8, { align: "right" });
     doc.text(`${fmt(line.unitPriceHT)} €`, colX[2] + colWidths[2] - 2, y + 4.8, { align: "right" });
     doc.text(`${line.tvaRate} %`, colX[3] + colWidths[3] - 2, y + 4.8, { align: "right" });
     doc.setFont("helvetica", "bold");
@@ -312,6 +316,44 @@ export function generateDevisPdfBuffer(
     totalTTC: devis.totalTTC,
     notes: devis.notes,
     validityDays: devis.validityDays,
+    settings,
+  });
+}
+
+// Même principe pour les factures : PDF téléchargé depuis le dashboard
+// (app/api/factures/[id]/pdf) et pièce jointe de l'email
+// (app/api/factures/[id]/send) sont identiques.
+export interface FactureForPdf {
+  number: string;
+  createdAt: Date;
+  dueDate: Date | null;
+  notes: string | null;
+  totalHT: number;
+  totalTVA: number;
+  totalTTC: number;
+}
+
+export function generateFacturePdfBuffer(
+  facture: FactureForPdf,
+  lines: DocumentPdfLine[],
+  client: DocumentPdfClient,
+  settings: DocumentPdfSettings | null
+): Buffer {
+  const fmtDate = (d: Date) => new Date(d).toLocaleDateString("fr-FR");
+
+  return generateDocumentPdfBuffer({
+    docTypeLabel: "FACTURE",
+    number: facture.number,
+    metaLines: [
+      { label: "Date", value: fmtDate(facture.createdAt) },
+      ...(facture.dueDate ? [{ label: "Échéance", value: fmtDate(facture.dueDate) }] : []),
+    ],
+    client,
+    lines,
+    totalHT: facture.totalHT,
+    totalTVA: facture.totalTVA,
+    totalTTC: facture.totalTTC,
+    notes: facture.notes,
     settings,
   });
 }

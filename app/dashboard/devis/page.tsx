@@ -199,7 +199,7 @@ function ActionsMenu({
           <MenuItem label="Dupliquer" icon={<Copy className="h-3.5 w-3.5" />}
             onClick={action(() => onDuplicate(d))} />
           <MenuItem label="Télécharger PDF" icon={<Download className="h-3.5 w-3.5" />}
-            onClick={action(() => window.open(`/print/devis/${d.id}?download=1`, "_blank"))} />
+            onClick={action(() => window.location.assign(`/api/devis/${d.id}/pdf`))} />
           <div className="my-1 mx-2 border-t border-slate-100" />
           <MenuItem label="Supprimer" icon={<Trash2 className="h-3.5 w-3.5" />}
             onClick={action(() => onDelete(d))} danger />

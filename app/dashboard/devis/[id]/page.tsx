@@ -309,15 +309,15 @@ export default function DevisDetailPage() {
             Aperçu
           </a>
 
-          {/* Télécharger PDF */}
-          <button
-            onClick={() => window.open(`/print/devis/${devis.id}?download=1`, "_blank")}
-            disabled={busy}
-            className="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-sm font-medium px-3.5 py-2 rounded-lg transition-colors disabled:opacity-50"
+          {/* Télécharger PDF — lien direct : la route renvoie le fichier en pièce jointe (aucune popup). */}
+          <a
+            href={`/api/devis/${devis.id}/pdf`}
+            download={`devis-${devis.number}.pdf`}
+            className="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-50 text-sm font-medium px-3.5 py-2 rounded-lg transition-colors"
           >
             <Download className="h-4 w-4" />
             PDF
-          </button>
+          </a>
 
           {/* Envoyer selon canal préféré */}
           {(() => {
