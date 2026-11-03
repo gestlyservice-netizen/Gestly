@@ -15,6 +15,7 @@ import { fakePrisma } from "@/tests/support/fake-prisma";
 import { GET as listFactures, POST as createFacture } from "@/app/api/factures/route";
 import { PATCH as patchFacture } from "@/app/api/factures/[id]/route";
 import { summarizeOutstanding } from "@/lib/factures/balance";
+import { defaultDueDateIso } from "@/lib/factures/echeance";
 import { POST as toFacture } from "@/app/api/devis/[id]/to-facture/route";
 import { POST as createAvoir } from "@/app/api/factures/[id]/avoir/route";
 import { POST as createDevisWeb } from "@/app/api/devis/route";
@@ -38,6 +39,8 @@ const as = (user: Record<string, any>) => { h.clerkUserId = user.clerkId; };
 const post = (body: unknown) => new Request("http://localhost/x", { method: "POST", body: JSON.stringify(body) });
 const ctx = (id: string) => ({ params: { id } });
 const LINE = { description: "Prestation fictive", quantity: 1, unitPriceHT: 100, tvaRate: 20 };
+// Échéance obligatoire des nouvelles factures (lib/factures/echeance.ts).
+const DUE = defaultDueDateIso();
 
 function seedFacture(userId: string, number: string, totalHT = 100) {
   const facture = seed("facture", {
@@ -59,7 +62,7 @@ beforeEach(() => {
 describe("factures — interface web", () => {
   it("créations simultanées : numéros uniques et consécutifs", async () => {
     as(userA);
-    const responses = await Promise.all(Array.from({ length: 8 }, () => createFacture(post({ clientId: clientA.id, lines: [LINE] }))));
+    const responses = await Promise.all(Array.from({ length: 8 }, () => createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate: DUE }))));
     expect(responses.map((r) => r.status)).toEqual(Array(8).fill(201));
     expect(rows("facture").map((f) => f.number).sort()).toEqual(Array.from({ length: 8 }, (_, i) => num("FAC", i + 1)));
   });
@@ -67,7 +70,7 @@ describe("factures — interface web", () => {
   it("préfixe et « Prochain n° » enregistrés dans les Paramètres : appliqués, puis le paramètre avance", async () => {
     as(userA);
     await saveSettings(post({ companyName: "Artisan A", prefixeFacture: "FA-2026-", prochainNumeroFacture: 42 }));
-    const res = await createFacture(post({ clientId: clientA.id, lines: [LINE] }));
+    const res = await createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate: DUE }));
     expect((await res.json()).number).toBe("FA-2026-042");
     expect((await (await getSettings()).json()).prochainNumeroFacture).toBe(43);
   });
@@ -75,17 +78,17 @@ describe("factures — interface web", () => {
   it("échec pendant la création : 500, rien d'émis, la reprise obtient le même numéro (jamais consommé)", async () => {
     as(userA);
     fakePrisma.failNext("facture.create", new Error("panne base"));
-    expect((await createFacture(post({ clientId: clientA.id, lines: [LINE] }))).status).toBe(500);
+    expect((await createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate: DUE }))).status).toBe(500);
     expect(rows("facture")).toHaveLength(0);
-    expect((await (await createFacture(post({ clientId: clientA.id, lines: [LINE] }))).json()).number).toBe(num("FAC", 1));
+    expect((await (await createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate: DUE }))).json()).number).toBe(num("FAC", 1));
   });
 
   it("isolation : le client d'un autre artisan est refusé ; chaque artisan a sa propre série", async () => {
     seedFacture(userA.id, num("FAC", 5));
     as(userB);
-    expect((await createFacture(post({ clientId: clientA.id, lines: [LINE] }))).status).toBe(404);
+    expect((await createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate: DUE }))).status).toBe(404);
     const clientB = seed("client", { userId: userB.id, name: "Client fictif B" });
-    expect((await (await createFacture(post({ clientId: clientB.id, lines: [LINE] }))).json()).number).toBe(num("FAC", 1));
+    expect((await (await createFacture(post({ clientId: clientB.id, lines: [LINE], dueDate: DUE }))).json()).number).toBe(num("FAC", 1));
   });
 });
 
@@ -105,7 +108,7 @@ describe("transformation devis → facture", () => {
   it("partage la série des factures créées depuis l'interface web", async () => {
     const devis = seedSignedDevis();
     as(userA);
-    await createFacture(post({ clientId: clientA.id, lines: [LINE] }));
+    await createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate: DUE }));
     expect((await (await toFacture(post({}), ctx(devis.id))).json()).number).toBe(num("FAC", 2));
   });
 
@@ -113,7 +116,7 @@ describe("transformation devis → facture", () => {
     const devis = seed("devis", { userId: userA.id, clientId: clientA.id, number: num("DEV", 1), status: "envoye" });
     as(userA);
     expect((await toFacture(post({}), ctx(devis.id))).status).toBe(400);
-    expect((await (await createFacture(post({ clientId: clientA.id, lines: [LINE] }))).json()).number).toBe(num("FAC", 1));
+    expect((await (await createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate: DUE }))).json()).number).toBe(num("FAC", 1));
   });
 });
 
@@ -429,5 +432,45 @@ describe("impayés nets des avoirs (recette V1, constaté en production le 2026-
     twoInvoices();
     as(userB);
     expect(await (await listFactures()).json()).toEqual([]);
+  });
+});
+
+describe("échéance obligatoire des nouvelles factures (décision du 2026-11-03)", () => {
+  it("formulaire : sans échéance, échéance invalide ou antérieure à l'émission → 400, aucun numéro consommé", async () => {
+    as(userA);
+    for (const dueDate of [undefined, "", "pas-une-date", "2020-01-01"]) {
+      const res = await createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate }));
+      expect(res.status).toBe(400);
+    }
+    expect(rows("facture")).toHaveLength(0);
+    const ok = await createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate: DUE }));
+    expect(ok.status).toBe(201);
+    expect((await ok.json()).number).toBe(num("FAC", 1));
+  });
+
+  it("formulaire : échéance modifiée par l'artisan conservée telle quelle", async () => {
+    as(userA);
+    const custom = defaultDueDateIso(new Date(Date.now() + 15 * 86_400_000));
+    await createFacture(post({ clientId: clientA.id, lines: [LINE], dueDate: custom }));
+    expect(rows("facture")[0].dueDate.toISOString().slice(0, 10)).toBe(custom);
+  });
+
+  it("[régression] transformation d'un devis : échéance à émission + 30 jours par défaut (avant : aucune, jamais relancée)", async () => {
+    const devis = seed("devis", { userId: userA.id, clientId: clientA.id, number: num("DEV", 1), status: "signe", totalHT: 100, totalTVA: 20, totalTTC: 120 });
+    as(userA);
+    expect((await toFacture(post({}), ctx(devis.id))).status).toBe(201);
+    expect(rows("facture")[0].dueDate.toISOString().slice(0, 10)).toBe(DUE);
+  });
+
+  it("transformation d'un devis : échéance choisie conservée ; invalide → 400, devis toujours signé, aucun numéro consommé", async () => {
+    const devis = seed("devis", { userId: userA.id, clientId: clientA.id, number: num("DEV", 1), status: "signe", totalHT: 100, totalTVA: 20, totalTTC: 120 });
+    as(userA);
+    expect((await toFacture(post({ dueDate: "2020-01-01" }), ctx(devis.id))).status).toBe(400);
+    expect(rows("devis")[0].status).toBe("signe");
+    expect(rows("facture")).toHaveLength(0);
+    const custom = defaultDueDateIso(new Date(Date.now() + 45 * 86_400_000));
+    const res = await toFacture(post({ dueDate: custom }), ctx(devis.id));
+    expect((await res.json()).number).toBe(num("FAC", 1));
+    expect(rows("facture")[0].dueDate.toISOString().slice(0, 10)).toBe(custom);
   });
 });

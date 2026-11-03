@@ -3,11 +3,12 @@ import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { allocateDocumentNumber } from "@/lib/numbering/document-number";
 import { isDevisInvoiced } from "@/lib/devis/lifecycle";
+import { defaultDueDateIso, parseDueDate } from "@/lib/factures/echeance";
 
 class DevisAlreadyInvoicedError extends Error {}
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -29,6 +30,13 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    // Échéance : celle choisie dans la fenêtre de transformation (préremplie
+    // à émission + 30 jours), ou émission + 30 jours si aucune n'est envoyée.
+    // Une facture issue d'un devis n'est donc plus jamais sans échéance.
+    const body = (await req.json().catch(() => ({}))) as { dueDate?: unknown };
+    const due = parseDueDate(body?.dueDate ?? defaultDueDateIso());
+    if (!due.ok) return NextResponse.json({ error: due.error }, { status: 400 });
 
     // Transaction unique : réclamation du devis, numéro, création.
     // La réclamation conditionnelle (signé → facturé) garantit qu'un même
@@ -53,6 +61,7 @@ export async function POST(
           number,
           createdAt: issuedAt,
           status:    "emise",
+          dueDate:   due.date,
           totalHT:   devis.totalHT,
           totalTVA:  devis.totalTVA,
           totalTTC:  devis.totalTTC,

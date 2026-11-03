@@ -9,6 +9,10 @@ import {
   Clock, User, Eye, Download, Pencil, Copy,
   ChevronDown, Check, Receipt, MessageCircle, Phone,
 } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { defaultDueDateIso, jourParis } from "@/lib/factures/echeance";
 
 /* ── Types ─────────────────────────────────────────────── */
 interface DevisLine {
@@ -91,6 +95,8 @@ export default function DevisDetailPage() {
   const [duplicating, setDuplicating] = useState(false);
   const [sending, setSending]         = useState(false);
   const [converting, setConverting]   = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [convertDueDate, setConvertDueDate] = useState("");
   const [error, setError]             = useState<string | null>(null);
   const [success, setSuccess]         = useState<string | null>(null);
   const [statusOpen, setStatusOpen]   = useState(false);
@@ -180,11 +186,19 @@ export default function DevisDetailPage() {
     }
   };
 
-  /* Transformer en facture */
+  /* Transformer en facture — échéance obligatoire, préremplie à émission + 30 jours */
+  const openConvert = () => {
+    setConvertDueDate(defaultDueDateIso());
+    setConvertOpen(true);
+  };
   const convertToFacture = async () => {
     setConverting(true);
     try {
-      const res = await authFetch(`/api/devis/${id}/to-facture`, { method: "POST" });
+      const res = await authFetch(`/api/devis/${id}/to-facture`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ dueDate: convertDueDate }),
+      });
       if (res.ok) {
         const facture = await res.json();
         router.push(`/dashboard/factures/${facture.id}`);
@@ -364,7 +378,7 @@ export default function DevisDetailPage() {
           {/* Transformer en facture */}
           {devis.status === "signe" && (
             <button
-              onClick={convertToFacture}
+              onClick={openConvert}
               disabled={busy}
               className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 shadow-sm"
             >
@@ -593,6 +607,40 @@ export default function DevisDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Dialog transformation en facture ─────────────── */}
+      <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Transformer en facture</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5 py-2">
+            <label htmlFor="convert-due-date" className="text-sm font-medium text-slate-700">
+              Date d&apos;échéance <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="convert-due-date"
+              type="date"
+              required
+              min={jourParis(new Date())}
+              value={convertDueDate}
+              onChange={(e) => setConvertDueDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-slate-400">30 jours après l&apos;émission par défaut, modifiable. La facture émise ne pourra plus être modifiée.</p>
+          </div>
+          <DialogFooter>
+            <button
+              onClick={async () => { await convertToFacture(); setConvertOpen(false); }}
+              disabled={converting || !convertDueDate}
+              className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
+              Émettre la facture
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

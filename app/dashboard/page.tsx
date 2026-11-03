@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { summarizeOutstanding } from "@/lib/factures/balance";
+import { statutFacture } from "@/lib/factures/echeance";
 
 /* ── Helpers ────────────────────────────────────────────── */
 const fmt = (n: number | null) =>
@@ -76,6 +77,7 @@ export default async function DashboardPage() {
         status:    true,
         totalTTC:  true,
         createdAt: true,
+        dueDate:   true,
         client:    { select: { name: true } },
         avoirs:    { select: { totalTTC: true } },
       },
@@ -296,16 +298,15 @@ export default async function DashboardPage() {
                       <th className="text-left px-5 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Numéro</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
                       <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Montant</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Émise</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Échéance</th>
                       <th className="px-4 py-2.5" />
                     </tr>
                   </thead>
                   <tbody>
                     {facturesEnAttente.map((f) => {
-                      const jours = Math.floor(
-                        (now.getTime() - new Date(f.createdAt).getTime()) / 86_400_000
-                      );
-                      const retard = jours > 30;
+                      // Même règle que la liste, la fiche et les relances (lib/factures/echeance.ts).
+                      const { statut, joursRetard } = statutFacture(f, now);
+                      const retard = statut === "en_retard";
                       return (
                         <tr key={f.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
                           <td className="px-5 py-3 font-mono text-blue-600 font-semibold text-xs">{f.number}</td>
@@ -313,7 +314,11 @@ export default async function DashboardPage() {
                           <td className="px-4 py-3 text-right font-semibold text-slate-900 tabular-nums">{fmt(f.outstanding)}&nbsp;€</td>
                           <td className="px-4 py-3 text-right">
                             <span className={`text-xs font-semibold ${retard ? "text-red-600" : "text-slate-500"}`}>
-                              J+{jours}
+                              {retard
+                                ? `Retard ${joursRetard} j`
+                                : f.dueDate
+                                  ? f.dueDate.toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })
+                                  : "Sans échéance"}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right">

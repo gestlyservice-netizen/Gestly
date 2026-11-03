@@ -128,6 +128,22 @@ describe("2. délais 3 / 10 / 21 jours après échéance", () => {
     expect(sent()).toHaveLength(3);
   });
 
+  it("activation tardive (facture déjà à 25 jours de retard) : seul le niveau atteint (J3) est envoyé, jamais J1 ni J2 ensuite", async () => {
+    enableRelances(userA.id, { canalSms: true });
+    overdue(userA.id, clientA.id, 25);
+    for (let i = 0; i < 3; i++) await runRelancesCheck();
+    expect(rows("relance").map((r) => [r.niveau, r.canal]).sort()).toEqual([[3, "email"], [3, "sms"]]);
+    expect(getSimulatedOutbox().filter((m) => m.channel === "email" || m.channel === "sms")).toHaveLength(2);
+  });
+
+  it("[régression] ancienne facture sans échéance, émise il y a 200 jours : jamais relancée", async () => {
+    enableRelances(userA.id);
+    overdue(userA.id, clientA.id, 0, { dueDate: null, createdAt: new Date(Date.now() - 200 * DAY) });
+    await runRelancesCheck();
+    expect(rows("relance")).toHaveLength(0);
+    expect(rows("notification")).toHaveLength(0);
+  });
+
   it("délais personnalisés (5 / 15 / 30) appliqués", async () => {
     enableRelances(userA.id, { delaiJ1: 5, delaiJ2: 15, delaiJ3: 30 });
     overdue(userA.id, clientA.id, 4);
@@ -211,6 +227,26 @@ describe("5. doublons et isolement", () => {
     expect(rows("relance")[0].statut).toBe("envoyee");
   });
 
+  it("trois exécutions simultanées, plusieurs factures et deux canaux : chaque relance une seule fois", async () => {
+    enableRelances(userA.id, { canalSms: true });
+    for (const d of [4, 12, 30]) overdue(userA.id, clientA.id, d);
+    await Promise.all([runRelancesCheck(), runRelancesCheck(), runRelancesCheck()]);
+    expect(rows("relance")).toHaveLength(6);
+    expect(rows("relance").every((r) => r.statut === "envoyee" && r.attempts === 1)).toBe(true);
+    expect(getSimulatedOutbox().filter((m) => m.channel === "email" || m.channel === "sms")).toHaveLength(6);
+  });
+
+  it("nouvelle tentative d'un échec lancée par deux exécutions simultanées : un seul renvoi", async () => {
+    live();
+    h.resendSend.mockResolvedValue(OK);
+    enableRelances(userA.id);
+    const f = overdue(userA.id, clientA.id, 4);
+    seed("relance", { factureId: f.id, niveau: 1, canal: "email", statut: "echec", erreur: "panne", attempts: 1 });
+    await Promise.all([runRelancesCheck(), runRelancesCheck()]);
+    expect(h.resendSend).toHaveBeenCalledTimes(1);
+    expect(rows("relance")[0]).toMatchObject({ statut: "envoyee", attempts: 2 });
+  });
+
   it("isolement : chaque compte avec ses propres réglages ; relances désactivées ou abonnement suspendu = aucune relance", async () => {
     enableRelances(userA.id, { delaiJ1: 3 });
     seed("relanceSettings", { userId: userB.id, enabled: false });
@@ -274,6 +310,22 @@ describe("6. erreurs et nouvelles tentatives", () => {
     await runRelancesCheck();
     expect(sent()).toHaveLength(1);
     expect(rows("relance")[0].statut).toBe("envoyee");
+  });
+
+  it("récupération après panne : base indisponible au moment d'enregistrer l'échec → relance laissée « en_cours », ni renvoyée ni bloquée ; reprise après 1 h", async () => {
+    live();
+    enableRelances(userA.id);
+    overdue(userA.id, clientA.id, 4);
+    h.resendSend.mockResolvedValueOnce({ data: null, error: { name: "x", message: "refus" } }).mockResolvedValue(OK);
+    fakePrisma.failNext("relance.update", new Error("base indisponible"));
+    await runRelancesCheck();
+    expect(rows("relance")[0]).toMatchObject({ statut: "en_cours", attempts: 0 });
+    await runRelancesCheck(); // moins d'une heure après : aucune nouvelle tentative
+    expect(h.resendSend).toHaveBeenCalledTimes(1);
+    fakePrisma.store.relance[0].envoyeeAt = new Date(Date.now() - 2 * 3_600_000);
+    await runRelancesCheck();
+    expect(h.resendSend).toHaveBeenCalledTimes(2);
+    expect(rows("relance")[0]).toMatchObject({ statut: "envoyee", attempts: 1 });
   });
 
   it("client sans email : ignoré sans échec ni tentative", async () => {

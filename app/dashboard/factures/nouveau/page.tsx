@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Link from "next/link";
 import { previewTotals } from "@/lib/documents/totals";
+import { defaultDueDateIso, jourParis } from "@/lib/factures/echeance";
 import { Plus, Trash2, Loader2, ChevronLeft, UserPlus, Search } from "lucide-react";
 import {
   Dialog,
@@ -31,7 +32,7 @@ const lineSchema = z.object({
 
 const factureSchema = z.object({
   clientId: z.string().min(1, "Sélectionnez un client"),
-  dueDate:  z.string().optional(),
+  dueDate:  z.string().min(1, "Date d'échéance obligatoire"),
   notes:    z.string().optional(),
   lines:    z.array(lineSchema).min(1, "Ajoutez au moins une prestation"),
 });
@@ -59,13 +60,11 @@ const TVA_OPTIONS = [
 const fmt = (n: number) =>
   n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// Jours calculés à l'heure de Paris, comme la validation serveur
+// (lib/factures/echeance.ts) : avant, toISOString() donnait la veille entre
+// minuit et 1 h (2 h l'été).
 function todayIso() {
-  return new Date().toISOString().split("T")[0];
-}
-function in30DaysIso() {
-  const d = new Date();
-  d.setDate(d.getDate() + 30);
-  return d.toISOString().split("T")[0];
+  return jourParis(new Date());
 }
 
 /* ── Page ────────────────────────────────────────────────── */
@@ -100,7 +99,7 @@ export default function NouvelleFacturePage() {
     resolver: zodResolver(factureSchema) as any,
     defaultValues: {
       clientId: "",
-      dueDate:  in30DaysIso(),
+      dueDate:  defaultDueDateIso(),
       notes:    "",
       lines:    [{ description: "", quantity: 1, unitPriceHT: 0, tvaRate: 20 }],
     },
@@ -310,14 +309,20 @@ export default function NouvelleFacturePage() {
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-slate-700">
-                Date d&apos;échéance{" "}
-                <span className="text-slate-400 font-normal">(optionnel)</span>
+                Date d&apos;échéance <span className="text-red-500">*</span>
               </label>
               <input
                 type="date"
                 className={inputCls}
+                min={todayIso()}
+                required
                 {...register("dueDate")}
               />
+              {errors.dueDate ? (
+                <p className="text-xs text-red-500 mt-1">{errors.dueDate.message}</p>
+              ) : (
+                <p className="text-xs text-slate-400">30 jours après l&apos;émission par défaut, modifiable</p>
+              )}
             </div>
           </div>
         </div>

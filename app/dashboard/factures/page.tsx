@@ -8,7 +8,8 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { factureBalance, summarizeOutstanding } from "@/lib/factures/balance";
+import { summarizeOutstanding } from "@/lib/factures/balance";
+import { STATUT_FACTURE_LABEL, statutFacture, type StatutFacture } from "@/lib/factures/echeance";
 
 interface Facture {
   id:        string;
@@ -28,15 +29,17 @@ const fmt = (n: number) =>
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("fr-FR") : "—";
 
+// Statut commun à la liste, à la fiche et au tableau de bord (lib/factures/echeance.ts).
+const STATUT_CLS: Record<StatutFacture, string> = {
+  payee:     "bg-green-100 text-green-700",
+  soldee:    "bg-slate-100 text-slate-600",
+  en_retard: "bg-red-100 text-red-600",
+  emise:     "bg-blue-100 text-blue-700",
+};
+
 function getDisplayStatus(f: Facture): { label: string; cls: string } {
-  if (f.status === "payee") return { label: "Payée", cls: "bg-green-100 text-green-700" };
-  if (factureBalance(f).fullyCredited) return { label: "Soldée par avoir", cls: "bg-slate-100 text-slate-600" };
-  const ref = f.dueDate ?? f.createdAt;
-  const daysSince = (Date.now() - new Date(ref).getTime()) / 86_400_000;
-  if (daysSince > 0 && f.dueDate) return { label: "En retard", cls: "bg-red-100 text-red-600" };
-  const daysSinceCreation = (Date.now() - new Date(f.createdAt).getTime()) / 86_400_000;
-  if (!f.dueDate && daysSinceCreation > 30) return { label: "En retard", cls: "bg-red-100 text-red-600" };
-  return { label: "Émise", cls: "bg-blue-100 text-blue-700" };
+  const { statut } = statutFacture(f);
+  return { label: STATUT_FACTURE_LABEL[statut], cls: STATUT_CLS[statut] };
 }
 
 export default function FacturesPage() {

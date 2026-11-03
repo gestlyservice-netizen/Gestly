@@ -8,6 +8,7 @@ import { sendSMS } from "@/lib/sms";
 import { getOvhSmsBalance } from "@/lib/ovh-balance";
 import { renderMessage } from "./messages";
 import { factureBalance } from "@/lib/factures/balance";
+import { joursDeRetard } from "@/lib/factures/echeance";
 import { createNotification, createNotificationOnce } from "@/lib/notifications";
 
 const MAX_ATTEMPTS = 5;
@@ -103,6 +104,8 @@ async function relancerCompte(settings: RelanceSettingsRow, summary: RelancesSum
     where: {
       userId: settings.userId,
       status: { not: "payee" },
+      // Les anciennes factures sans échéance ne sont jamais relancées
+      // (décision utilisateur, 2026-11-03) ; les nouvelles en ont toujours une.
       dueDate: { not: null, lt: new Date() },
     },
     include: { client: true, avoirs: { select: { totalTTC: true } } },
@@ -121,7 +124,10 @@ async function relancerCompte(settings: RelanceSettingsRow, summary: RelancesSum
       continue;
     }
 
-    const joursRetard = Math.floor((Date.now() - facture.dueDate!.getTime()) / 86_400_000);
+    // Même calcul que l'affichage « En retard » (lib/factures/echeance.ts).
+    // Activation tardive (décision utilisateur, 2026-11-03) : seul le niveau
+    // atteint est envoyé, sans rattrapage des niveaux précédents.
+    const joursRetard = joursDeRetard(facture.dueDate, new Date()) ?? 0;
     const niveau: 1 | 2 | 3 | 0 =
       joursRetard >= settings.delaiJ3 ? 3 :
       joursRetard >= settings.delaiJ2 ? 2 :

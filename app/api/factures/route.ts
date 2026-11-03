@@ -3,6 +3,7 @@ import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { allocateDocumentNumber } from "@/lib/numbering/document-number";
 import { computeDocumentLines } from "@/lib/documents/totals";
+import { parseDueDate } from "@/lib/factures/echeance";
 
 export async function GET() {
   try {
@@ -56,10 +57,9 @@ export async function POST(request: Request) {
     const computed = computeDocumentLines(lines);
     if (!computed.ok) return NextResponse.json({ error: computed.error }, { status: 400 });
     const { lines: computedLines, totalHT, totalTVA, totalTTC } = computed;
-    const due = typeof dueDate === "string" && dueDate ? new Date(dueDate) : null;
-    if (due && Number.isNaN(due.getTime())) {
-      return NextResponse.json({ error: "Date d'échéance invalide" }, { status: 400 });
-    }
+    // Échéance obligatoire, jamais avant l'émission (lib/factures/echeance.ts).
+    const due = parseDueDate(dueDate);
+    if (!due.ok) return NextResponse.json({ error: due.error }, { status: 400 });
 
     // Numéro attribué sous verrou dans la transaction de création
     // (lib/numbering/document-number.ts) : unique, jamais réutilisé, et
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
         totalTVA,
         totalTTC,
         notes:    typeof notes === "string" && notes.trim() ? notes.trim() : null,
-        dueDate:  due,
+        dueDate:  due.date,
         lines:    { create: computedLines },
       },
       include: { client: true, lines: true },

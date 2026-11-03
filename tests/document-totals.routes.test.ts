@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { defaultDueDateIso } from "@/lib/factures/echeance";
 
 // Recette V1, blocs 4 et 5 : les montants enregistrés par les routes de
 // création et de modification sont ceux du calcul partagé
@@ -45,20 +46,21 @@ const decimalLines = [
 ];
 // 0,30 + 50,00 (49,995) = 50,30 HT ; TVA 0,06 + 5,00 = 5,06 ; TTC 55,36
 const expected = { totalHT: 50.3, totalTVA: 5.06, totalTTC: 55.36 };
+const DUE = defaultDueDateIso(); // échéance obligatoire des nouvelles factures
 
 beforeEach(() => { created.length = 0; vi.clearAllMocks(); });
 
 describe("POST /api/factures", () => {
   it("[régression] totaux au centime (avant : 0,30000000000000004 et TVA non arrondie)", async () => {
     const { POST } = await import("@/app/api/factures/route");
-    const res = await POST(post({ clientId: "c1", lines: decimalLines }));
+    const res = await POST(post({ clientId: "c1", dueDate: DUE, lines: decimalLines }));
     expect(res.status).toBe(201);
     expect(created[0]).toMatchObject(expected);
   });
 
   it("[régression] taux de TVA absent : 20 % (avant : NaN enregistré)", async () => {
     const { POST } = await import("@/app/api/factures/route");
-    const res = await POST(post({ clientId: "c1", lines: [{ description: "Pose", quantity: 2, unitPriceHT: 50 }] }));
+    const res = await POST(post({ clientId: "c1", dueDate: DUE, lines: [{ description: "Pose", quantity: 2, unitPriceHT: 50 }] }));
     expect(res.status).toBe(201);
     expect(created[0]).toMatchObject({ totalHT: 100, totalTVA: 20, totalTTC: 120 });
   });
@@ -70,7 +72,7 @@ describe("POST /api/factures", () => {
     [[{ description: "x", quantity: 1, unitPriceHT: 10, tvaRate: 200 }], "Ligne 1 : taux de TVA invalide"],
   ])("ligne forgée refusée (400), aucune facture ni numéro : %j", async (lines, error) => {
     const { POST } = await import("@/app/api/factures/route");
-    const res = await POST(post({ clientId: "c1", lines }));
+    const res = await POST(post({ clientId: "c1", dueDate: DUE, lines }));
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error });
     expect(db.facture.create).not.toHaveBeenCalled();

@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { factureBalance } from "@/lib/factures/balance";
+import { STATUT_FACTURE_LABEL, statutFacture, type StatutFacture } from "@/lib/factures/echeance";
 
 /* ── Types ──────────────────────────────────────────────── */
 interface Line {
@@ -77,14 +78,18 @@ const fmt = (n: number) =>
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString("fr-FR") : "—";
 
-function getDisplayStatus(f: Facture, fullyCredited: boolean): { label: string; cls: string } {
-  if (f.status === "payee") return { label: "Payée", cls: "bg-green-100 text-green-700" };
-  if (fullyCredited) return { label: "Soldée par avoir", cls: "bg-slate-100 text-slate-600" };
-  if (f.dueDate && new Date(f.dueDate) < new Date())
-    return { label: "En retard", cls: "bg-red-100 text-red-600" };
-  const daysSince = (Date.now() - new Date(f.createdAt).getTime()) / 86_400_000;
-  if (!f.dueDate && daysSince > 30) return { label: "En retard", cls: "bg-red-100 text-red-600" };
-  return { label: "Émise", cls: "bg-blue-100 text-blue-700" };
+// Statut commun à la liste, à la fiche et au tableau de bord (lib/factures/echeance.ts).
+const STATUT_CLS: Record<StatutFacture, string> = {
+  payee:     "bg-green-100 text-green-700",
+  soldee:    "bg-slate-100 text-slate-600",
+  en_retard: "bg-red-100 text-red-600",
+  emise:     "bg-blue-100 text-blue-700",
+};
+
+function getDisplayStatus(f: Facture, avoirs: { totalTTC: number }[]): { label: string; cls: string } {
+  const { statut, joursRetard } = statutFacture({ ...f, avoirs });
+  const label = statut === "en_retard" ? `En retard de ${joursRetard} j` : STATUT_FACTURE_LABEL[statut];
+  return { label, cls: STATUT_CLS[statut] };
 }
 
 /* ── Page ────────────────────────────────────────────────── */
@@ -309,7 +314,7 @@ export default function FactureDetailPage() {
   }
 
   const balance = factureBalance({ ...facture, avoirs });
-  const status = getDisplayStatus(facture, balance.fullyCredited);
+  const status = getDisplayStatus(facture, avoirs);
   /* Priorité : lignes propres de la facture, sinon lignes du devis lié */
   const lines = (facture.lines ?? []).length > 0
     ? facture.lines
