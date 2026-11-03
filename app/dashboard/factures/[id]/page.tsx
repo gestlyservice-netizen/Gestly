@@ -575,9 +575,9 @@ export default function FactureDetailPage() {
                   <span className="text-slate-400 ml-2">· {fmtDate(r.envoyeeAt)}</span>
                 </div>
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                  r.statut === "envoyee" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"
+                  r.statut === "envoyee" ? "bg-green-100 text-green-700" : r.statut === "en_cours" ? "bg-slate-100 text-slate-600" : "bg-red-100 text-red-600"
                 }`}>
-                  {r.statut === "envoyee" ? "Envoyée" : `Échec${r.erreur ? ` — ${r.erreur}` : ""}`}
+                  {r.statut === "envoyee" ? "Envoyée" : r.statut === "en_cours" ? "En cours" : `Échec${r.erreur ? ` — ${r.erreur}` : ""}`}
                 </span>
               </li>
             ))}

@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => {
       settings: { findUnique: vi.fn() },
       relanceSettings: { findMany: vi.fn() },
       user: { findUnique: vi.fn() },
-      relance: { findUnique: vi.fn(), upsert: vi.fn() },
+      relance: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       ovhBalanceAlert: { findFirst: vi.fn(), create: vi.fn() },
     },
     createNotification: vi.fn(),
@@ -169,7 +169,8 @@ describe("bêta privée (OUTBOUND_MODE=simulate en production)", () => {
     const summary = await runRelancesCheck();
     expect(summary.sent).toBe(0);
     expect(mocks.prisma.relanceSettings.findMany).not.toHaveBeenCalled();
-    expect(mocks.prisma.relance.upsert).not.toHaveBeenCalled();
+    expect(mocks.prisma.relance.create).not.toHaveBeenCalled();
+    expect(mocks.prisma.relance.update).not.toHaveBeenCalled();
   });
 });
 
@@ -257,7 +258,8 @@ describe("relances (email)", () => {
       },
     ]);
     mocks.prisma.relance.findUnique.mockResolvedValue(null);
-    mocks.prisma.relance.upsert.mockResolvedValue({});
+    mocks.prisma.relance.create.mockResolvedValue({});
+    mocks.prisma.relance.update.mockResolvedValue({});
   });
 
   it("live, refus de Resend : relance enregistrée en ÉCHEC, jamais « envoyee »", async () => {
@@ -265,10 +267,11 @@ describe("relances (email)", () => {
     mocks.resendSend.mockResolvedValue(RESEND_REFUSED);
     const summary = await runRelancesCheck();
     expect(summary).toMatchObject({ sent: 0, failed: 1 });
-    const upsert = mocks.prisma.relance.upsert.mock.calls[0][0];
-    expect(upsert.create.statut).toBe("echec");
-    expect(upsert.update.statut).toBe("echec");
-    expect(upsert.create.erreur).toMatch(/domain is not verified/);
+    // Réservée « en_cours » avant l'envoi, puis passée en échec.
+    expect(mocks.prisma.relance.create.mock.calls[0][0].data.statut).toBe("en_cours");
+    const update = mocks.prisma.relance.update.mock.calls[0][0];
+    expect(update.data.statut).toBe("echec");
+    expect(update.data.erreur).toMatch(/domain is not verified/);
     expect(mocks.createNotification.mock.calls[0][1]).toBe("relance_echouee");
   });
 
@@ -277,7 +280,7 @@ describe("relances (email)", () => {
     mocks.resendSend.mockResolvedValue(RESEND_OK);
     const summary = await runRelancesCheck();
     expect(summary).toMatchObject({ sent: 1, failed: 0 });
-    expect(mocks.prisma.relance.upsert.mock.calls[0][0].create.statut).toBe("envoyee");
+    expect(mocks.prisma.relance.update.mock.calls[0][0].data.statut).toBe("envoyee");
   });
 
   it("simulation : relance « envoyee » (simulée), aucun appel Resend", async () => {

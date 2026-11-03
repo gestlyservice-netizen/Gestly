@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => {
       relanceSettings: { findMany: vi.fn() },
       user: { findUnique: vi.fn() },
       facture: { findMany: vi.fn() },
-      relance: { findUnique: vi.fn(), upsert: vi.fn() },
+      relance: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     },
   };
 });
@@ -234,7 +234,8 @@ describe("mode simulation (défaut hors production) — aucun appel externe malg
       },
     ]);
     mocks.prisma.relance.findUnique.mockResolvedValue(null);
-    mocks.prisma.relance.upsert.mockResolvedValue({});
+    mocks.prisma.relance.create.mockResolvedValue({});
+    mocks.prisma.relance.update.mockResolvedValue({});
 
     const summary = await runRelancesCheck();
 

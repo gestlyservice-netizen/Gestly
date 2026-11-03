@@ -103,6 +103,16 @@ const MODELS: Record<string, ModelDef> = {
     defaults: () => ({ inputTokens: null, outputTokens: null, audioSeconds: null, messageId: null }),
     unique: [],
   },
+  // Relances de factures (prisma/schema.prisma, RelanceSettings et Relance).
+  relanceSettings: {
+    defaults: () => ({ enabled: false, delaiJ1: 3, delaiJ2: 10, delaiJ3: 21, canalEmail: true, canalSms: false, messageJ1: null, messageJ2: null, messageJ3: null }),
+    unique: [["userId"]],
+    updatedAt: true,
+  },
+  relance: {
+    defaults: () => ({ erreur: null, attempts: 1, envoyeeAt: new Date() }),
+    unique: [["factureId", "niveau", "canal"]],
+  },
 };
 
 type Store = Record<string, Row[]>;

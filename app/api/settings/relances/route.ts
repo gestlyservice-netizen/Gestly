@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+const MAX_DELAI = 365;
+
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -34,11 +36,23 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
+  // Délais en jours après échéance : entiers de 1 à 365, strictement
+  // croissants. Avant : 10 / 3 / 21 était accepté (relance J2 avant J1), et
+  // 3,5 faisait échouer l'enregistrement (colonne entière) avec une erreur 500.
+  const delai = (v: unknown, defaut: number) => (v === undefined || v === null || v === "" ? defaut : Number(v));
+  const [delaiJ1, delaiJ2, delaiJ3] = [delai(body.delaiJ1, 3), delai(body.delaiJ2, 10), delai(body.delaiJ3, 21)];
+  if (![delaiJ1, delaiJ2, delaiJ3].every((d) => Number.isInteger(d) && d >= 1 && d <= MAX_DELAI)) {
+    return NextResponse.json({ error: `Les délais doivent être des nombres entiers de jours, entre 1 et ${MAX_DELAI}.` }, { status: 400 });
+  }
+  if (!(delaiJ1 < delaiJ2 && delaiJ2 < delaiJ3)) {
+    return NextResponse.json({ error: "Les délais doivent être croissants : 1re relance < 2e relance < 3e relance." }, { status: 400 });
+  }
+
   const data = {
     enabled: Boolean(body.enabled),
-    delaiJ1: Math.max(1, Number(body.delaiJ1) || 3),
-    delaiJ2: Math.max(1, Number(body.delaiJ2) || 10),
-    delaiJ3: Math.max(1, Number(body.delaiJ3) || 21),
+    delaiJ1,
+    delaiJ2,
+    delaiJ3,
     canalEmail: Boolean(body.canalEmail),
     canalSms: Boolean(body.canalSms),
     messageJ1: typeof body.messageJ1 === "string" && body.messageJ1.trim() ? body.messageJ1 : null,
