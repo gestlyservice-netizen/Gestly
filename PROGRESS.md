@@ -4,6 +4,24 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-11-03 — Mission 27 : audit M13 du moteur de relances
+
+Aucune donnée de Production modifiée (lecture seule), aucun envoi réel, aucun déploiement. Commit `337151c` (son message indique 34 tests : la suite en compte 31).
+
+- **Méthode** : `tests/relances-engine.test.ts` exécute le vrai moteur (`runRelancesCheck`, `sendEmail`, `sendSMS`, notifications) sur la base en mémoire, qui applique l'unicité `Relance(factureId, niveau, canal)` (modèles `relanceSettings` et `relance` ajoutés à `tests/support/fake-prisma.ts`). Resend simulé, tout `fetch` fait échouer le test.
+- **Vérifié conforme** : cron Vercel quotidien `0 6 * * *` sur `/api/relances/check`, route publique pour Clerk mais refusée sans `Bearer CRON_SECRET` ; niveaux à 3/10/21 jours (bornes 2, 3, 9, 10, 20, 21, 60) et délais personnalisés ; un seul envoi par niveau et canal ; factures payées, soldées par avoir (intégral ou partiels cumulés), non échues ou sans échéance exclues ; reste dû réclamé après avoir partiel ; isolement (réglages par compte, relances désactivées, abonnement résilié) ; refus de Resend → échec, nouvelle tentative au passage suivant, abandon après 5 ; client sans email ignoré ; mode simulation (aucun client Resend, aucun appel réseau) ; bêta en production (`OUTBOUND_MODE=simulate` + `VERCEL_ENV=production`) : rien envoyé ni enregistré ; messages personnalisés (variables remplacées, email et SMS), modèle par défaut si vide.
+- **Anomalies trouvées par les tests et corrigées** :
+  1. Deux exécutions simultanées (cron livré deux fois, ou lancement administrateur en même temps) envoyaient **deux fois** la même relance (lecture, envoi, puis écriture). Désormais `claimRelance` réserve la relance (`en_cours`, création protégée par l'unicité ou mise à jour conditionnelle d'un échec) avant l'envoi ; réservation abandonnée reprise après 1 h.
+  2. Un incident après l'envoi (enregistrement, notification) faisait passer la relance en « echec » : elle aurait été **renvoyée** au client. L'enregistrement est sorti du bloc d'envoi.
+  3. Une erreur sur un compte interrompait les relances de **tous les comptes suivants** : traitement isolé par compte (erreur journalisée, Sentry, comptée en échec).
+  4. Réglages : délais non croissants (10/3/21 → J2 avant J1) acceptés, délais non entiers (3,5) → erreur 500. Désormais 400 explicite (entiers de 1 à 365, J1 < J2 < J3), affiché par la page.
+  Fiche facture : statut « En cours » affiché.
+- **Production (lecture)** : 1 réglage (3/10/21, messages personnalisés, **relances désactivées**), aucune relance enregistrée.
+- **Points ouverts (décision utilisateur)** : facture sans date d'échéance jamais relancée, alors que la liste l'affiche « En retard » après 30 jours ; activation tardive des relances : seul le niveau atteint est envoyé (pas de rattrapage J1/J2) ; envoi réel non vérifiable en bêta.
+- Vérification : tsc 0, lint propre, **31 fichiers / 601 tests**, build isolé code 0.
+
+---
+
 ## 2026-11-03 — Mission 26 : avoirs dans les indicateurs financiers
 
 Aucune donnée de Production modifiée (lecture seule), aucun déploiement. Commits `1fb762b`, puis suivi.
