@@ -4,6 +4,19 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-11-03 — Mission 25 : téléchargement PDF des devis et factures (recette M4)
+
+Aucune donnée de Production modifiée, aucun déploiement. Commit `3392177`.
+
+- **Symptôme (production)** : DEV-2026-001 enregistré, « Aperçu » OK ; « PDF » ouvre une fenêtre qui charge puis se referme, aucun fichier.
+- **Cause, reproduite dans un vrai Chrome** (build isolé local, `puppeteer-core`, devis fictif identique) : le bouton ouvrait `/print/devis/[id]?download=1`, qui capturait la page (html2canvas, rendu OK en 106 ms) puis appelait `window.close()` dans le `finally`, juste après `pdf.save()`. Chrome détruit la fenêtre avant de démarrer le téléchargement du blob : **aucun téléchargement**. Même page avec `window.close()` neutralisé : `devis-DEV-2026-001.pdf` de 204 Ko. Défaut identique sur les factures (M6 aurait échoué). Ni la route API, ni l'authentification, ni le CSS (aucune couleur `oklch`/`lab`) en cause. Les journaux Vercel ne pouvaient rien montrer : tout se passait dans le navigateur.
+- **Correction** : `GET /api/devis/[id]/pdf` et `GET /api/factures/[id]/pdf` (connexion, abonnement, filtre `userId`, `Content-Disposition: attachment`, `no-store`) avec le moteur serveur déjà utilisé par les emails, WhatsApp et les avoirs (`generateFacturePdfBuffer` ajouté et partagé avec l'envoi par email). Boutons « PDF » (fiche devis, menu de la liste, fiche facture) = lien direct, sans popup. Pages `/print` : aperçu et impression seulement. `lib/generate-pdf.ts` supprimé (plus utilisé). Quantités au format français dans le PDF (« 1,5 »).
+- **Preuves** : `tests/document-pdf.routes.test.ts` (7 tests, PDF réel : numéro, entreprise, SIRET, lignes, HT 50,30 / TVA 5,06 / TTC 55,36, mentions, échéance, 40 €, 404 hors compte) ; balayage `api-access` étendu automatiquement aux 2 routes. PDF généré relu : complet et lisible. Chrome sur le build local : lien de la fiche et menu de la liste → `devis-DEV-2026-001.pdf` téléchargé (8 387 octets, identique au PDF de la route), aucune nouvelle fenêtre, page conservée. Route sans session : 404 Clerk, comme les autres routes protégées.
+- Vérification : tsc 0, lint propre, **29 fichiers / 553 tests**, build isolé code 0.
+- **Reste** : déploiement (accord requis), puis M4 et M6 en production (la route exige une vraie session Clerk, non reproductible en local).
+
+---
+
 ## 2026-11-02 — Mission 24 : déploiement des correctifs, blocage M2 (Stripe)
 
 - Déploiement `dpl_Fqg1B7HQvAhUHVDBdx8ewyzrxYSD` (`0d7d5f7`, push par l'utilisateur) : Ready, build 1 min 24 s, alias www.gestly.fr. Avant : tsc 0, lint propre, 546 tests, build isolé 0, avance rapide depuis `e529cfd`.
