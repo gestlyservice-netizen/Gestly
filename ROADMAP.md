@@ -107,7 +107,7 @@ Décision : la base Supabase actuelle (données fictives) sert au développement
 
 ## Risques identifiés (non corrigés)
 
-- ⚠️ Un fichier `.env` a été commité dans `2e81a89` puis retiré dans `dd10b13` : il reste dans l'historique Git. Contenu **non inspecté** (par règle de non-lecture des secrets). À vérifier par l'utilisateur ; rotation des clés recommandée si des valeurs réelles s'y trouvaient.
+- ⚠️ Un fichier `.env` a été commité dans `2e81a89` puis retiré dans `dd10b13` : il reste dans l'historique Git, et **le dépôt GitHub est public** (vérifié le 2026-11-09), donc il est lisible par tous. Contenu **non inspecté** (par règle de non-lecture des secrets). À classer par l'utilisateur ; rotation obligatoire de toute valeur réelle.
 - ⚠️ `lib/rate-limit.ts` est en mémoire : sur Vercel (instances serverless multiples), la limite n'est pas globale.
 - ⚠️ Pas d'environnement de dev isolé confirmé : risque d'écriture en production lors d'essais locaux.
 - ⚠️ `lib/url.ts` remplace `localhost` par `https://www.gestly.fr` : les liens générés en dev pointent vers la production.
@@ -116,5 +116,5 @@ Décision : la base Supabase actuelle (données fictives) sert au développement
 - ⚠️ Mode simulation en production : définir `OUTBOUND_MODE=live` dans Vercel Production avant le déploiement, puis vérifier `/api/health`. Une mauvaise configuration est désormais signalée (log d'erreur, Sentry, health en 503), mais les envois restent bloqués tant qu'elle n'est pas corrigée.
 - ⚠️ `next start` local avec des variables de production importées (`VERCEL_ENV=production`, `NODE_ENV=production`) passerait en `live` : cas non protégé par la règle (le hook bloque `vercel env pull` pour Claude).
 - ⚠️ Le commit `5cdbf61` affirme que la migration de l'agent WhatsApp a été « appliquée sur Supabase ». **Non vérifié** : avant tout déploiement, il faut comparer le schéma réel de la base à `prisma/schema.prisma` (lecture seule) et ne pas rejouer les scripts SQL à l'aveugle.
-- ⚠️ La copie de l'ancien PC contient un token GitHub en clair dans l'URL de son remote `origin` : à révoquer.
+- ✅ Token GitHub de la copie de l'ancien PC : révoqué par l'utilisateur (confirmé le 2026-11-09).
 - ⚠️ `npm ci` signale 48 vulnérabilités (2 faibles, 15 modérées, 27 élevées, 4 critiques), dont `next` 14.2.35. Non analysées en détail.

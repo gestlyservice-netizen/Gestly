@@ -4,6 +4,20 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-11-09 — Mission 33 : préparation du déploiement M15, sécurité du dépôt
+
+Aucun push, aucun déploiement, aucune migration, aucune variable modifiée, aucun secret lu. `main` avancé **en local** (avance rapide) jusqu'à la branche M15.
+
+- **Production actuelle** : déploiement `dpl_J3QJvncwUSWYjEAUW9DrYbQGN6DN` (2026-11-03 22:57, Ready), créé 7 min après `9de07b4` = `origin/main`. M15 (4 commits) non déployé.
+- **Supabase (lecture)** : table `RateLimitBucket` absente → migration `20261109_rate_limit_bucket_up.sql` non appliquée (le code se replie sur la limite en mémoire, signalée).
+- **Dépôt GitHub `gestlyservice-netizen/Gestly` : PUBLIC** (API GitHub sans connexion : `"visibility": "public"`, revérifié). L'ancien `.env` (`2e81a89`, 12 lignes, retiré dans `dd10b13`) fait partie de `origin/main`, donc lisible publiquement. Contenu **non inspecté** (règle et garde-fou) : classement réel/factice à faire par l'utilisateur. Arbre suivi actuel : aucun motif de clé réelle (seules les valeurs d'exemple de `.env.example`).
+- **Token GitHub de l'ancien PC** : révoqué à plusieurs reprises selon l'utilisateur ; considéré comme traité.
+- **Simulation** : M15 ne modifie ni `lib/outbound/mode.ts`, ni `instrumentation.ts`, ni `/api/health`, ni `middleware.ts`, ni `vercel.json` (seulement 2 tests de `lib/outbound`). `OUTBOUND_MODE` présente en Production (`vercel env ls`, noms seulement), aucune variable Resend, `VERCEL_ENV`/`NODE_ENV` non surchargées → `mode=simulate` conservé après déploiement (à confirmer par `/api/health`).
+- Vérification : tsc 0, lint propre, **41 fichiers / 867 tests**. Build isolé non relancé : code applicatif identique à celui vérifié en Mission 32.
+- **En attente** : classement de l'ancien `.env` et décision sur la visibilité du dépôt, puis push de `main` par l'utilisateur ; ensuite sauvegarde et migration `RateLimitBucket` (accord requis).
+
+---
+
 ## 2026-11-09 — Mission 32 : décisions avant l'étape 3 (limite partagée, mentions de paiement, emails clients, retard, relances)
 
 Branche `fix/m15-envoi-email`. Aucune écriture sur Supabase, aucun email réel, aucune variable modifiée, aucun déploiement ni push, `OUTBOUND_MODE=simulate` inchangé. Migration préparée, **non appliquée**. Commit local.
