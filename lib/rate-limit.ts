@@ -18,3 +18,9 @@ export function isRateLimited(key: string, limit: number, windowMs: number): boo
   bucket.count++;
   return bucket.count > limit;
 }
+
+// Tests uniquement : remet tous les compteurs à zéro entre deux scénarios
+// (l'état est global au module).
+export function clearRateLimits(): void {
+  buckets.clear();
+}

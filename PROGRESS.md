@@ -4,6 +4,23 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-11-09 — Mission 30 : M15, envoi des devis et factures par email (correctifs, étape 1)
+
+Branche `fix/m15-envoi-email` (depuis `test/whatsapp-flow`). Aucun envoi réel, aucune écriture en base (tests sur mocks uniquement), aucune variable Vercel, Stripe ou Supabase modifiée, aucun déploiement ni push.
+
+- **Mutualisé** : `lib/documents/document-email.ts` (contenu des deux emails, expéditeur, adresse de réponse, validation des champs saisis, limites de débit), `lib/email/escape-html.ts`, `lib/email/address.ts`, `clearRateLimits()` (tests) dans `lib/rate-limit.ts`. PDF : moteurs existants `generateDevisPdfBuffer` / `generateFacturePdfBuffer`, envoi : `sendEmail()` inchangé.
+- **Devis** (`app/api/devis/[id]/send`) : PDF joint (`devis-<n°>.pdf`, identique au bouton « PDF »), version texte ajoutée, toutes les données saisies échappées (client, raison sociale, lignes, notes, lien), quantités et taux au format français, dates au jour de Paris, adresse du client validée (400 si absente ou invalide), réponse vers l'email pro de l'artisan s'il est valide (avant : vers l'adresse d'expédition de Gestly, alors que l'email invite à « répondre »).
+- **Facture** (`app/api/factures/[id]/send`) : destinataire saisi validé (une seule adresse ; listes, nom affiché, retours à la ligne refusés), email du client validé, objet ramené sur une ligne (200 caractères max), message borné (10 000), champs d'un type inattendu refusés (400). Contenu par défaut inchangé.
+- **Limitation de débit** (les deux routes, après validation, avant PDF et envoi) : 3 envois par document / 10 min, 50 par compte / h, 429 avec message. En mémoire, par instance (même limite connue que `ai/improve-message`).
+- **Après envoi** : si l'enregistrement échoue, 500 explicite « l'email a été envoyé… » pour éviter un second envoi.
+- **Tests** : `tests/document-email.routes.test.ts` (36 : routes réelles, PDF réellement généré et relu — numéro, lignes, 50,30 / 5,06 / 55,36, échéance, 40 € —, destinataires, expéditeur, réponse, refus Resend, réponse sans identifiant, erreur réseau, isolement 404, injection HTML de bout en bout, limites, bêta 503, simulation : aucun client Resend même avec une clé présente, `fetch` interdit dans chaque test) ; `lib/documents/document-email.test.ts` (24), `lib/email/address.test.ts` (25), `lib/email/escape-html.test.ts` (5), `lib/rate-limit.test.ts` (4). `email-delivery.test.ts` adapté (mock du PDF de devis, compteurs remis à zéro).
+- **Mutations** (8, toutes détectées puis annulées) : échappement retiré, PDF du devis retiré, limite devis, limite facture, validation du destinataire saisi, validation de l'email client, simulation contournée, erreur Resend ignorée.
+- Vérification : tsc 0, lint propre, **37 fichiers / 711 tests**, build isolé code 0 (copie `git archive` de l'index sans fichiers non suivis, variables factices, `SENTRY_URL` local, jonction `node_modules` retirée).
+- **Limites** : limite de débit non partagée entre instances Vercel ni conservée après redémarrage ; validation d'adresse volontairement stricte (adresses internationalisées refusées) ; rendu réel dans Gmail/Outlook et délivrabilité non vérifiés ; la fenêtre « Envoyer la facture » préremplit l'objet avec « — Gestly » au lieu de la raison sociale (inchangé) ; les dates du PDF restent à l'heure du serveur (UTC sur Vercel).
+- **Prochaine action** : validation de l'utilisateur, puis étape 2 (recette locale en simulation).
+
+---
+
 ## 2026-11-09 — Mission 29 : M15 (envoi des devis et factures par email), état des lieux
 
 Aucun envoi réel, aucune écriture en base, aucun déploiement, aucun secret lu. Analyse seulement, aucun code modifié.

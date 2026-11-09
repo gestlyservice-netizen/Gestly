@@ -33,6 +33,7 @@ vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/pdf/generate-document-pdf", () => ({
   generateDocumentPdfBuffer: mocks.generatePdf,
   generateFacturePdfBuffer: mocks.generatePdf,
+  generateDevisPdfBuffer: mocks.generatePdf,
 }));
 vi.mock("@/lib/notifications", () => ({ createNotification: mocks.createNotification, createNotificationOnce: vi.fn() }));
 vi.mock("@/lib/sms/ovh-client", () => ({ createOvhClient: vi.fn() }));
@@ -44,6 +45,7 @@ import { POST as sendDevis } from "@/app/api/devis/[id]/send/route";
 import { POST as sendFacture } from "@/app/api/factures/[id]/send/route";
 import { GET as checkOvhBalance } from "@/app/api/admin/ovh-balance/check/route";
 import { runRelancesCheck } from "@/lib/relances/engine";
+import { clearRateLimits } from "@/lib/rate-limit";
 
 const ENV_KEYS = ["OUTBOUND_MODE", "VERCEL_ENV", "RESEND_API_KEY", "CRON_SECRET"];
 let savedEnv: Record<string, string | undefined> = {};
@@ -65,6 +67,7 @@ beforeEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
   vi.clearAllMocks();
   clearSimulatedOutbox();
+  clearRateLimits();
   vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
     throw new Error("APPEL RÉSEAU INTERDIT dans les tests");
   });

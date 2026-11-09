@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server";
 import { sendEmail } from "@/lib/outbound/email";
 import { isOutboundDisabled, OUTBOUND_DISABLED_MESSAGE } from "@/lib/outbound/mode";
-import type { DevisLine } from "@prisma/client";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getPublicUrl } from "@/lib/url";
+import { parseEmailAddress } from "@/lib/email/address";
+import { generateDevisPdfBuffer } from "@/lib/pdf/generate-document-pdf";
+import {
+  buildDevisEmail,
+  devisPdfFilename,
+  documentEmailFrom,
+  isDocumentEmailRateLimited,
+  replyToFrom,
+  DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE,
+} from "@/lib/documents/document-email";
 
-const fmt = (n: number) =>
-  n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const fmtDate = (d: Date | string | null) =>
-  d ? new Date(d).toLocaleDateString("fr-FR") : "—";
-
+// Envoi d'un devis par email au client : corps HTML (données échappées) +
+// version texte + PDF joint (même moteur que le bouton « PDF » et WhatsApp).
+// Le devis n'est marqué envoyé qu'après le retour normal de sendEmail().
 export async function POST(
-  request: Request,
+  _request: Request,
   { params }: { params: { id: string } }
 ) {
   const user = await getCurrentUser();
@@ -28,145 +34,75 @@ export async function POST(
     where: { id: params.id, userId: user.id },
     include: { client: true, lines: true },
   });
-
   if (!devis) return NextResponse.json({ error: "Devis introuvable" }, { status: 404 });
 
-  if (!devis.client.email) {
+  if (!devis.client.email?.trim()) {
+    return NextResponse.json({ error: "Ce client n'a pas d'adresse email" }, { status: 400 });
+  }
+  const to = parseEmailAddress(devis.client.email);
+  if (!to) {
     return NextResponse.json(
-      { error: "Ce client n'a pas d'adresse email" },
+      { error: "L'adresse email de ce client est invalide : corrigez-la dans sa fiche" },
       { status: 400 }
     );
   }
 
-  const pdfUrl = `${getPublicUrl()}/print/devis/${devis.id}`;
+  if (isDocumentEmailRateLimited(user.id, "devis", devis.id)) {
+    return NextResponse.json({ error: DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE }, { status: 429 });
+  }
 
-  const expiryDate = new Date(devis.createdAt);
-  expiryDate.setDate(expiryDate.getDate() + devis.validityDays);
+  const settings = await prisma.settings.findUnique({ where: { userId: user.id } });
 
-  const linesRows = devis.lines
-    .map(
-      (l: DevisLine) => `
-      <tr>
-        <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#334155">${l.description}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;text-align:right">${l.quantity}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;text-align:right">${fmt(l.unitPriceHT)} €</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;text-align:right">${l.tvaRate} %</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-weight:600;color:#1e293b;text-align:right">${fmt(l.totalHT)} €</td>
-      </tr>`
-    )
-    .join("");
+  let pdfBuffer: Buffer;
+  try {
+    pdfBuffer = generateDevisPdfBuffer(devis, devis.lines, devis.client, settings);
+  } catch (err) {
+    console.error("[POST /api/devis/:id/send] Génération PDF:", err);
+    return NextResponse.json({ error: "Échec de la génération du PDF" }, { status: 500 });
+  }
 
-  const html = `
-<!DOCTYPE html>
-<html lang="fr">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-  <div style="max-width:620px;margin:40px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
-
-    <!-- Header -->
-    <div style="background:#1e40af;padding:32px 40px">
-      <div style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.5px">${user.companyName}</div>
-      <div style="color:#93c5fd;font-size:13px;margin-top:4px">Devis ${devis.number}</div>
-    </div>
-
-    <!-- Body -->
-    <div style="padding:40px">
-      <p style="margin:0 0 24px;color:#475569;font-size:15px">
-        Bonjour <strong style="color:#1e293b">${devis.client.name}</strong>,
-      </p>
-      <p style="margin:0 0 32px;color:#475569;font-size:15px;line-height:1.6">
-        Veuillez trouver ci-dessous votre devis <strong>${devis.number}</strong> pour un montant de
-        <strong style="color:#1e40af">${fmt(devis.totalTTC)} € TTC</strong>,
-        valable jusqu'au <strong>${fmtDate(expiryDate)}</strong>.
-      </p>
-
-      <!-- Lines table -->
-      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:24px;font-size:13px">
-        <thead>
-          <tr style="background:#f8fafc">
-            <th style="padding:10px 12px;text-align:left;color:#94a3b8;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0">Description</th>
-            <th style="padding:10px 12px;text-align:right;color:#94a3b8;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0">Qté</th>
-            <th style="padding:10px 12px;text-align:right;color:#94a3b8;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0">Prix HT</th>
-            <th style="padding:10px 12px;text-align:right;color:#94a3b8;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0">TVA</th>
-            <th style="padding:10px 12px;text-align:right;color:#94a3b8;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0">Total HT</th>
-          </tr>
-        </thead>
-        <tbody>${linesRows}</tbody>
-      </table>
-
-      <!-- Totals -->
-      <div style="display:flex;justify-content:flex-end">
-        <table cellpadding="0" cellspacing="0" style="width:240px;font-size:14px">
-          <tr>
-            <td style="padding:6px 0;color:#64748b">Total HT</td>
-            <td style="padding:6px 0;text-align:right;color:#1e293b;font-weight:500">${fmt(devis.totalHT)} €</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;color:#64748b">Total TVA</td>
-            <td style="padding:6px 0;text-align:right;color:#1e293b;font-weight:500">${fmt(devis.totalTVA)} €</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 16px;background:#1e40af;color:#fff;font-weight:700;border-radius:8px 0 0 8px">Total TTC</td>
-            <td style="padding:10px 16px;background:#1e40af;color:#fff;font-weight:700;text-align:right;font-size:18px;border-radius:0 8px 8px 0">${fmt(devis.totalTTC)} €</td>
-          </tr>
-        </table>
-      </div>
-
-      ${devis.notes ? `
-      <div style="margin-top:32px;padding:16px;background:#f8fafc;border-radius:8px;border-left:3px solid #e2e8f0">
-        <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Notes</div>
-        <p style="margin:0;color:#475569;font-size:14px;line-height:1.6;white-space:pre-wrap">${devis.notes}</p>
-      </div>` : ""}
-
-      <!-- CTA -->
-      <div style="margin-top:40px;text-align:center">
-        <a href="${pdfUrl}" style="display:inline-block;background:#1e40af;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:8px">
-          Voir le devis complet
-        </a>
-      </div>
-
-      <p style="margin-top:32px;color:#94a3b8;font-size:13px;line-height:1.6;text-align:center">
-        Pour accepter ce devis, veuillez nous contacter ou répondre à cet email.<br>
-        Devis valable ${devis.validityDays} jours à compter du ${fmtDate(devis.createdAt)}.
-      </p>
-    </div>
-
-    <!-- Footer -->
-    <div style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center">
-      <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:0">
-        Vous recevez cet email car <strong>${user.companyName}</strong> utilise
-        <strong>Gestly</strong> pour vous envoyer ses devis et factures.<br>
-        Une question ? Contactez-nous à
-        <a href="mailto:contact@gestly.fr" style="color:#94a3b8">contact@gestly.fr</a>.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+  const { subject, html, text } = buildDevisEmail({
+    ...devis,
+    lines: devis.lines,
+    clientName: devis.client.name,
+    companyName: user.companyName || settings?.companyName || "",
+    onlineUrl: `${getPublicUrl()}/print/devis/${encodeURIComponent(devis.id)}`,
+  });
 
   try {
     // sendEmail lève une exception si Resend refuse l'email : le devis n'est
     // alors PAS marqué envoyé (catch ci-dessous).
     await sendEmail({
-      from: process.env.RESEND_FROM_EMAIL ?? "Gestly <onboarding@resend.dev>",
-      to: devis.client.email,
-      subject: `Devis ${devis.number} — ${user.companyName}`,
+      from: documentEmailFrom(),
+      to,
+      subject,
       html,
+      text,
+      ...replyToFrom(settings?.emailPro),
+      attachments: [{ filename: devisPdfFilename(devis.number), content: pdfBuffer }],
     });
   } catch (err) {
-    console.error("Resend error:", err);
+    console.error("[POST /api/devis/:id/send] Resend error:", err);
     return NextResponse.json({ error: "Échec de l'envoi de l'email" }, { status: 500 });
   }
 
-  // Mark as sent if still draft
-  const updated = await prisma.devis.update({
-    where: { id: params.id },
-    data: {
-      status: devis.status === "brouillon" ? "envoye" : devis.status,
-      sentAt: devis.sentAt ?? new Date(),
-    },
-    include: { client: true, lines: true },
-  });
-
-  return NextResponse.json(updated);
+  try {
+    // Brouillon → envoyé ; un devis déjà signé ou refusé garde son statut.
+    const updated = await prisma.devis.update({
+      where: { id: devis.id },
+      data: {
+        status: devis.status === "brouillon" ? "envoye" : devis.status,
+        sentAt: devis.sentAt ?? new Date(),
+      },
+      include: { client: true, lines: true },
+    });
+    return NextResponse.json(updated);
+  } catch (err) {
+    // L'email est parti : le signaler pour éviter un second envoi au client.
+    console.error("[POST /api/devis/:id/send] Enregistrement après envoi:", err);
+    return NextResponse.json(
+      { error: "L'email a été envoyé, mais son enregistrement a échoué. Rechargez la page avant tout nouvel envoi." },
+      { status: 500 }
+    );
+  }
 }
