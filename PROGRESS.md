@@ -4,6 +4,19 @@ Format : une entrée par session, la plus récente en haut. Chaque tâche « fai
 
 ---
 
+## 2026-11-09 — Mission 29 : M15 (envoi des devis et factures par email), état des lieux
+
+Aucun envoi réel, aucune écriture en base, aucun déploiement, aucun secret lu. Analyse seulement, aucun code modifié.
+
+- **Mode local prouvé** : `npm run dev` démarré quelques secondes (aucune page ouverte) → log `[outbound] mode=simulate`, sans note ni alerte de configuration ; serveur arrêté. (Un script de contrôle sans affichage de valeur a été refusé par le garde-fou, qui bloque toute mention de `VERCEL_ENV=production` : non contourné.)
+- **Production** : `OUTBOUND_MODE` présente (`vercel env ls`, noms seulement ; valeur chiffrée, `mode=simulate` confirmé par `/api/health` le 2026-10-27). Bêta : envois de devis et factures refusés (503, `isOutboundDisabled`). **Aucune variable Resend** en Production (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`) : un envoi réel y est impossible en l'état ; l'expéditeur par défaut `onboarding@resend.dev` ne livre qu'au titulaire du compte Resend.
+- **Code** (`app/api/devis/[id]/send`, `app/api/factures/[id]/send`) : refus Resend → document non marqué envoyé (testé). Écarts relevés : (1) devis envoyé **sans PDF joint**, seulement un lien vers `/print/devis/[id]` (la facture, elle, joint le PDF) ; (2) nom du client, de l'entreprise, lignes et notes insérés **sans échappement** dans le HTML du devis (injection HTML dans l'email) ; (3) destinataire libre de la facture non validé ; (4) aucune limite de débit sur les deux routes (convention « appels coûteux ») ; (5) aucun test sur le **contenu** des emails (montants, pièce jointe, destinataire).
+- Numérotation : « M15 » de la recette = envoi email (ROADMAP n° 7 et 10), distinct du n° 15 de la ROADMAP (IA).
+- Vérification : tsc 0, lint propre, **32 fichiers / 617 tests**.
+- **Prochaine action** : décision de l'utilisateur sur le plan M15 (correctifs locaux testés, puis test réel contrôlé).
+
+---
+
 ## 2026-11-03 — Mission 28 : échéance obligatoire, retard unifié, robustesse des relances
 
 Décisions de l'utilisateur appliquées. Aucune donnée de Production modifiée, aucune variable Vercel, relances toujours désactivées en Production, `OUTBOUND_MODE=simulate` inchangé, aucun déploiement. Commit `0a4be95` (+ suivi).
