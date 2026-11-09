@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import { finValiditeDevis, formatDateParis, formatJourFr } from "@/lib/dates/paris";
 import { documentLegalMentions, type LegalMentionKind } from "@/lib/documents/legal-mentions";
 
 // Générateur de PDF vectoriel côté serveur (texte sélectionnable, poids réduit)
@@ -298,16 +299,13 @@ export function generateDevisPdfBuffer(
   client: DocumentPdfClient,
   settings: DocumentPdfSettings | null
 ): Buffer {
-  const validUntil = new Date(devis.createdAt);
-  validUntil.setDate(validUntil.getDate() + devis.validityDays);
-  const fmtDate = (d: Date) => d.toLocaleDateString("fr-FR");
-
+  // Dates au jour de Paris, quel que soit le fuseau du serveur (UTC sur Vercel).
   return generateDocumentPdfBuffer({
     docTypeLabel: "DEVIS",
     number: devis.number,
     metaLines: [
-      { label: "Date", value: fmtDate(devis.createdAt) },
-      { label: "Valable jusqu'au", value: fmtDate(validUntil) },
+      { label: "Date", value: formatDateParis(devis.createdAt) },
+      { label: "Valable jusqu'au", value: formatJourFr(finValiditeDevis(devis.createdAt, devis.validityDays)) },
     ],
     client,
     lines,
@@ -339,14 +337,12 @@ export function generateFacturePdfBuffer(
   client: DocumentPdfClient,
   settings: DocumentPdfSettings | null
 ): Buffer {
-  const fmtDate = (d: Date) => new Date(d).toLocaleDateString("fr-FR");
-
   return generateDocumentPdfBuffer({
     docTypeLabel: "FACTURE",
     number: facture.number,
     metaLines: [
-      { label: "Date", value: fmtDate(facture.createdAt) },
-      ...(facture.dueDate ? [{ label: "Échéance", value: fmtDate(facture.dueDate) }] : []),
+      { label: "Date", value: formatDateParis(facture.createdAt) },
+      ...(facture.dueDate ? [{ label: "Échéance", value: formatDateParis(facture.dueDate) }] : []),
     ],
     client,
     lines,

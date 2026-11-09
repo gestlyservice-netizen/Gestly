@@ -11,6 +11,7 @@ import {
   devisPdfFilename,
   documentEmailFrom,
   isDocumentEmailRateLimited,
+  raisonSociale,
   replyToFrom,
   DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE,
 } from "@/lib/documents/document-email";
@@ -65,7 +66,7 @@ export async function POST(
     ...devis,
     lines: devis.lines,
     clientName: devis.client.name,
-    companyName: user.companyName || settings?.companyName || "",
+    companyName: raisonSociale(settings, user),
     onlineUrl: `${getPublicUrl()}/print/devis/${encodeURIComponent(devis.id)}`,
   });
 

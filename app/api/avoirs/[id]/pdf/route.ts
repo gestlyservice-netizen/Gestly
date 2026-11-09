@@ -2,9 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateDocumentPdfBuffer } from "@/lib/pdf/generate-document-pdf";
-
-const fmtDate = (d: Date | string | null) =>
-  d ? new Date(d).toLocaleDateString("fr-FR") : "—";
+import { formatDateParis } from "@/lib/dates/paris";
 
 export async function GET(
   _req: Request,
@@ -28,7 +26,7 @@ export async function GET(
     docTypeLabel: "AVOIR",
     number: avoir.number,
     metaLines: [
-      { label: "Date", value: fmtDate(avoir.createdAt) },
+      { label: "Date", value: formatDateParis(avoir.createdAt) },
       { label: "Facture d'origine", value: avoir.facture.number },
     ],
     client: avoir.client,

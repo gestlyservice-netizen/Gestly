@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -37,6 +37,7 @@ const facture = {
 const db = {
   devis: { findFirst: vi.fn() },
   facture: { findFirst: vi.fn() },
+  avoir: { findFirst: vi.fn() },
   settings: { findUnique: vi.fn(async () => settings) },
 };
 vi.mock("@/lib/prisma", () => ({ prisma: db, default: db }));
@@ -135,5 +136,52 @@ describe("[régression] boutons PDF du dashboard", () => {
       expect(s).not.toContain("pdf.save(");
       expect(s).not.toContain("html2canvas");
     }
+  });
+});
+
+// Dates : jour de Paris quel que soit le fuseau du serveur (UTC sur Vercel).
+// Avant : toLocaleDateString("fr-FR") sans fuseau → la veille pour un
+// document créé entre 0 h et 1 h (hiver) ou 2 h (été) à Paris.
+describe.each(["UTC", "Europe/Paris"])("[régression] dates des PDF, serveur en %s", (tz) => {
+  const savedTz = process.env.TZ;
+  beforeEach(() => { process.env.TZ = tz; });
+  afterEach(() => {
+    if (savedTz === undefined) delete process.env.TZ;
+    else process.env.TZ = savedTz;
+  });
+
+  it("devis du 04/11 à 0 h 30 (Paris) : Date 04/11/2026, valable jusqu'au 04/12/2026", async () => {
+    db.devis.findFirst.mockResolvedValueOnce({ ...devis, createdAt: new Date("2026-11-03T23:30:00Z") });
+    const { GET } = await import("@/app/api/devis/[id]/pdf/route");
+    const text = await pdfText(await GET(req(), { params: { id: "dev_a" } }));
+    expect(text).toContain("04/11/2026");
+    expect(text).toContain("04/12/2026");
+    expect(text).not.toContain("03/11/2026");
+  });
+
+  it("facture émise le 04/11 à 0 h 30 (Paris), échéance au 03/12 : dates exactes", async () => {
+    db.facture.findFirst.mockResolvedValueOnce({ ...facture, createdAt: new Date("2026-11-03T23:30:00Z") });
+    const { GET } = await import("@/app/api/factures/[id]/pdf/route");
+    const text = await pdfText(await GET(req(), { params: { id: "fac_a" } }));
+    expect(text).toContain("04/11/2026");
+    expect(text).toContain("03/12/2026");
+    expect(text).not.toContain("03/11/2026");
+  });
+
+  it("avoir émis le 01/01/2027 à 0 h 30 (Paris) : daté de 2027, filtré par compte", async () => {
+    const avoir = {
+      id: "av_a", userId: "user_a", number: "AV-2027-001", createdAt: new Date("2026-12-31T23:30:00Z"),
+      reason: "Remise", ...amounts, client, lines, facture: { number: "FAC-2026-001" },
+    };
+    db.avoir.findFirst.mockImplementation(async ({ where }: { where: { id: string; userId: string } }) =>
+      where.id === "av_a" && where.userId === "user_a" ? avoir : null);
+    const { GET } = await import("@/app/api/avoirs/[id]/pdf/route");
+    const res = await GET(req(), { params: { id: "av_a" } });
+    expect(res.status).toBe(200);
+    const text = await pdfText(res);
+    expect(text).toContain("AV-2027-001");
+    expect(text).toContain("01/01/2027");
+    expect(text).not.toContain("31/12/2026");
+    expect((await GET(req(), { params: { id: "av_b" } })).status).toBe(404);
   });
 });

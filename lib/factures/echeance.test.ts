@@ -9,6 +9,16 @@ describe("defaultDueDateIso — échéance proposée à émission + 30 jours", (
     // 3 novembre 00:30 à Paris = 2 novembre 23:30 UTC : le jour retenu est celui de Paris.
     expect(defaultDueDateIso(at("2026-11-02T23:30:00Z"))).toBe("2026-12-03");
   });
+
+  it("[régression] traversée de l'heure d'hiver : 30 jours calendaires, pas 30 × 24 h", () => {
+    // 20/10/2026 0 h 30 CEST = 19/10 22 h 30 UTC. Avant : + 720 h = 18/11 23 h 30 CET → « 2026-11-18 ».
+    expect(defaultDueDateIso(at("2026-10-19T22:30:00Z"))).toBe("2026-11-19");
+  });
+
+  it("traversée de l'heure d'été : 23 h 30 la veille du changement", () => {
+    // 28/03/2026 23 h 30 CET = 22 h 30 UTC ; + 30 jours = 27/04/2026.
+    expect(defaultDueDateIso(at("2026-03-28T22:30:00Z"))).toBe("2026-04-27");
+  });
 });
 
 describe("parseDueDate — échéance d'une nouvelle facture", () => {

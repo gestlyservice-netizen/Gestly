@@ -11,9 +11,44 @@ import {
   facturePdfFilename,
   isDocumentEmailRateLimited,
   parseFactureEmailOverrides,
+  raisonSociale,
   replyToFrom,
   DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE,
 } from "@/lib/documents/document-email";
+
+// Valeurs proposées dans la fenêtre « Envoyer la facture » : calculées ici,
+// avec la même règle que l'envoi (raison sociale des Paramètres), pour que
+// l'écran n'ait plus son propre modèle (il affichait « — Gestly »).
+export async function GET(
+  _request: Request,
+  { params }: { params: { id: string } }
+) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  if (isSubscriptionBlocked(user)) {
+    return NextResponse.json({ error: "Abonnement inactif ou impayé" }, { status: 402 });
+  }
+
+  try {
+    const facture = await prisma.facture.findFirst({
+      where: { id: params.id, userId: user.id },
+      include: { client: true },
+    });
+    if (!facture) return NextResponse.json({ error: "Facture introuvable" }, { status: 404 });
+
+    const settings = await prisma.settings.findUnique({ where: { userId: user.id } });
+    const { subject, message } = defaultFactureEmail({
+      number: facture.number,
+      totalTTC: facture.totalTTC,
+      clientName: facture.client.name,
+      companyName: raisonSociale(settings, user),
+    });
+    return NextResponse.json({ to: facture.client.email ?? "", subject, message });
+  } catch (err) {
+    console.error("[GET /api/factures/:id/send]", err);
+    return NextResponse.json({ error: "Impossible de préparer l'email" }, { status: 500 });
+  }
+}
 
 // Envoi d'une facture par email (texte brut + PDF joint). Destinataire, objet
 // et message peuvent être modifiés dans la fenêtre d'envoi ; le destinataire
@@ -77,7 +112,7 @@ export async function POST(
     number: facture.number,
     totalTTC: facture.totalTTC,
     clientName: facture.client.name,
-    companyName: user.companyName || settings?.companyName || "",
+    companyName: raisonSociale(settings, user),
   });
 
   try {

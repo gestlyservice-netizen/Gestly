@@ -1,4 +1,5 @@
 import { factureBalance, type FactureForBalance } from "@/lib/factures/balance";
+import { ajouterJours, jourParis } from "@/lib/dates/paris";
 
 // Échéance et retard des factures — règle unique partagée par la création
 // (formulaire, transformation d'un devis), les écrans (liste, fiche, tableau
@@ -17,16 +18,16 @@ import { factureBalance, type FactureForBalance } from "@/lib/factures/balance";
 
 export const DELAI_PAIEMENT_DEFAUT_JOURS = 30;
 const DAY = 86_400_000;
-const TIME_ZONE = "Europe/Paris";
+// Jour calendaire de Paris : règle commune aux documents (lib/dates/paris.ts).
+export { jourParis };
 
-/** Jour calendaire (AAAA-MM-JJ) d'un instant, à l'heure de Paris. */
-export function jourParis(d: Date): string {
-  return d.toLocaleDateString("sv-SE", { timeZone: TIME_ZONE });
-}
-
-/** Échéance proposée (AAAA-MM-JJ) : date d'émission + 30 jours. */
+/**
+ * Échéance proposée (AAAA-MM-JJ) : jour d'émission à Paris + 30 jours
+ * calendaires. (Avant : + 30 × 24 h, un jour de moins pour une facture émise
+ * entre 0 h et 1 h à Paris en traversant le passage à l'heure d'hiver.)
+ */
 export function defaultDueDateIso(issuedAt: Date = new Date()): string {
-  return jourParis(new Date(issuedAt.getTime() + DELAI_PAIEMENT_DEFAUT_JOURS * DAY));
+  return ajouterJours(jourParis(issuedAt), DELAI_PAIEMENT_DEFAUT_JOURS);
 }
 
 export type DueDateResult = { ok: true; date: Date } | { ok: false; error: string };

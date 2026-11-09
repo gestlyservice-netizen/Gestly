@@ -161,13 +161,23 @@ export default function FactureDetailPage() {
 
   const openSendDialog = () => {
     if (!facture) return;
+    // Objet et message proposés par le serveur (raison sociale des Paramètres,
+    // même modèle que l'envoi). S'ils restent vides (échec du chargement),
+    // le serveur applique ce même modèle à l'envoi.
     setSendTo(facture.client.email ?? "");
-    setSendSubject(`Facture ${facture.number} — Gestly`);
-    setSendMessage(
-      `Bonjour ${facture.client.name},\n\nVeuillez trouver ci-joint votre facture ${facture.number} d'un montant de ${fmt(facture.totalTTC)} € TTC.\n\nCordialement,`
-    );
+    setSendSubject("");
+    setSendMessage("");
     setSendError(null);
     setSendOpen(true);
+    fetch(`/api/factures/${id}/send`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { to?: string; subject?: string; message?: string } | null) => {
+        if (!d) return;
+        setSendTo((cur) => cur || d.to || "");
+        setSendSubject((cur) => cur || d.subject || "");
+        setSendMessage((cur) => cur || d.message || "");
+      })
+      .catch(() => {});
   };
 
   const sendFacture = async () => {
@@ -690,11 +700,22 @@ export default function FactureDetailPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Objet</Label>
-              <Input value={sendSubject} onChange={(e) => setSendSubject(e.target.value)} />
+              <Input
+                value={sendSubject}
+                onChange={(e) => setSendSubject(e.target.value)}
+                placeholder="Objet par défaut"
+                maxLength={200}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Message</Label>
-              <Textarea rows={5} value={sendMessage} onChange={(e) => setSendMessage(e.target.value)} />
+              <Textarea
+                rows={5}
+                value={sendMessage}
+                onChange={(e) => setSendMessage(e.target.value)}
+                placeholder="Message par défaut"
+                maxLength={10000}
+              />
             </div>
             <p className="text-xs text-slate-400">Le PDF de la facture sera joint automatiquement.</p>
             {sendError && (

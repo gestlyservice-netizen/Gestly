@@ -49,12 +49,14 @@ vi.mock("@/lib/prisma", () => ({ prisma: db, default: db }));
 vi.mock("@/lib/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth")>()),
   getCurrentUser: async () => ({
-    id: "user_a", companyName: "Artisan Fictif", stripeSubscriptionId: "sub_a", subscriptionStatus: "trialing",
+    // Nom saisi à l'inscription, différent de la raison sociale des Paramètres
+    // (« Artisan Fictif ») : prouve que l'objet utilise la raison sociale.
+    id: "user_a", companyName: "Nom d'inscription", stripeSubscriptionId: "sub_a", subscriptionStatus: "trialing",
   }),
 }));
 
 import { POST as sendDevis } from "@/app/api/devis/[id]/send/route";
-import { POST as sendFacture } from "@/app/api/factures/[id]/send/route";
+import { POST as sendFacture, GET as factureEmailDefaults } from "@/app/api/factures/[id]/send/route";
 import { clearSimulatedOutbox, getSimulatedOutbox } from "@/lib/outbound/mode";
 import { clearRateLimits } from "@/lib/rate-limit";
 import { DOCUMENT_EMAIL_LIMITS } from "@/lib/documents/document-email";
@@ -468,5 +470,111 @@ describe("POST /api/factures/[id]/send", () => {
     expect(res.status).toBe(503);
     expect(getSimulatedOutbox()).toHaveLength(0);
     expect(db.facture.update).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe("raison sociale dans l'objet (anomalie « — Gestly »)", () => {
+  it("GET /api/factures/[id]/send : valeurs proposées par le serveur, raison sociale des Paramètres", async () => {
+    const res = await factureEmailDefaults(new Request("http://localhost/x"), { params: { id: "fac_a" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      to: "client.test@example.com",
+      subject: "Facture FAC-2026-001 — Artisan Fictif",
+      message:
+        "Bonjour Client Fictif,\n\nVeuillez trouver ci-joint votre facture FAC-2026-001 d'un montant de 55,36 € TTC.\n\nCordialement,\nArtisan Fictif",
+    });
+  });
+
+  it("GET : sans raison sociale dans les Paramètres, nom d'inscription ; facture d'un autre compte : 404", async () => {
+    db.settings.findUnique.mockResolvedValue(null);
+    const res = await factureEmailDefaults(new Request("http://localhost/x"), { params: { id: "fac_a" } });
+    expect((await res.json()).subject).toBe("Facture FAC-2026-001 — Nom d'inscription");
+    expect((await factureEmailDefaults(new Request("http://localhost/x"), { params: { id: "fac_b" } })).status).toBe(404);
+  });
+
+  it("GET : ne déclenche aucun envoi, même en simulation", async () => {
+    await factureEmailDefaults(new Request("http://localhost/x"), { params: { id: "fac_a" } });
+    expect(getSimulatedOutbox()).toHaveLength(0);
+    expect(mocks.Resend).not.toHaveBeenCalled();
+  });
+
+  it("devis et facture : raison sociale des Paramètres prioritaire sur le nom d'inscription", async () => {
+    live();
+    await sendDevis(reqDevis(), { params: { id: "dev_a" } });
+    await sendFacture(reqFacture({}), { params: { id: "fac_a" } });
+    expect(sentPayload(0).subject).toBe("Devis DEV-2026-001 — Artisan Fictif");
+    expect(sentPayload(1).subject).toBe("Facture FAC-2026-001 — Artisan Fictif");
+    for (const i of [0, 1]) expect(sentPayload(i).subject).not.toMatch(/Gestly/);
+  });
+
+  it("Paramètres absents ou raison sociale vide : nom d'inscription", async () => {
+    live();
+    db.settings.findUnique.mockResolvedValue(null);
+    await sendFacture(reqFacture({}), { params: { id: "fac_a" } });
+    expect(sentPayload(0).subject).toBe("Facture FAC-2026-001 — Nom d'inscription");
+
+    db.settings.findUnique.mockResolvedValue({ ...settings, companyName: "" });
+    await sendDevis(reqDevis(), { params: { id: "dev_a" } });
+    expect(sentPayload(1).subject).toBe("Devis DEV-2026-001 — Nom d'inscription");
+  });
+
+  it("[régression] l'écran n'a plus son propre modèle « — Gestly »", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("app/dashboard/factures/[id]/page.tsx", "utf8");
+    expect(src).not.toMatch(/— Gestly/);
+    expect(src).toContain("fetch(`/api/factures/${id}/send`)");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dates des PDF joints : jour de Paris, même sur un serveur en UTC (Vercel).
+describe.each(["UTC", "Europe/Paris", "America/New_York"])("dates des PDF joints, serveur en %s", (tz) => {
+  const savedTz = process.env.TZ;
+  beforeEach(() => { process.env.TZ = tz; });
+  afterEach(() => {
+    if (savedTz === undefined) delete process.env.TZ;
+    else process.env.TZ = savedTz;
+  });
+
+  it("[régression] devis créé le 04/11 à 0 h 30 (Paris) : PDF et email datés du 04/11, valable jusqu'au 04/12", async () => {
+    live();
+    state.devis = makeDevis({ createdAt: new Date("2026-11-03T23:30:00Z") });
+    await sendDevis(reqDevis(), { params: { id: "dev_a" } });
+    const pdf = pdfText(sentPayload().attachments[0].content);
+    expect(pdf).toContain("04/11/2026");
+    expect(pdf).toContain("04/12/2026");
+    expect(pdf).not.toContain("03/11/2026");
+    expect(pdf).not.toContain("03/12/2026");
+    expect(sentPayload().text).toContain("valable jusqu'au 04/12/2026");
+  });
+
+  it("[régression] devis du 20/10 à 0 h 30 (heure d'été), 30 jours : valable jusqu'au 19/11 (heure d'hiver)", async () => {
+    live();
+    state.devis = makeDevis({ createdAt: new Date("2026-10-19T22:30:00Z") });
+    await sendDevis(reqDevis(), { params: { id: "dev_a" } });
+    const pdf = pdfText(sentPayload().attachments[0].content);
+    expect(pdf).toContain("20/10/2026");
+    expect(pdf).toContain("19/11/2026");
+    expect(pdf).not.toContain("18/11/2026");
+  });
+
+  it("[régression] facture émise le 04/11 à 0 h 30 (Paris), échéance 03/12 : dates exactes dans le PDF", async () => {
+    live();
+    state.facture = makeFacture({ createdAt: new Date("2026-11-03T23:30:00Z"), dueDate: new Date("2026-12-03T00:00:00.000Z") });
+    await sendFacture(reqFacture({}), { params: { id: "fac_a" } });
+    const pdf = pdfText(sentPayload().attachments[0].content);
+    expect(pdf).toContain("04/11/2026");
+    expect(pdf).toContain("03/12/2026");
+    expect(pdf).not.toContain("03/11/2026");
+  });
+
+  it("facture émise le 25/10 à 2 h 30 (heure répétée du passage à l'heure d'hiver)", async () => {
+    live();
+    state.facture = makeFacture({ createdAt: new Date("2026-10-25T01:30:00Z"), dueDate: new Date("2026-11-24T00:00:00.000Z") });
+    await sendFacture(reqFacture({}), { params: { id: "fac_a" } });
+    const pdf = pdfText(sentPayload().attachments[0].content);
+    expect(pdf).toContain("25/10/2026");
+    expect(pdf).toContain("24/11/2026");
   });
 });

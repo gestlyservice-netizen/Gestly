@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   buildDevisEmail,
   defaultFactureEmail,
-  devisValidUntil,
   documentEmailFrom,
+  documentEmailSubject,
+  raisonSociale,
   isDocumentEmailRateLimited,
   parseFactureEmailOverrides,
   replyToFrom,
@@ -100,8 +101,49 @@ describe("buildDevisEmail", () => {
     );
   });
 
-  it("validité : même calcul que le PDF (date du devis + durée)", () => {
-    expect(devisValidUntil(new Date("2026-11-03T10:00:00Z"), 30).toISOString()).toBe("2026-12-03T10:00:00.000Z");
+  describe.each(["UTC", "Europe/Paris"])("serveur en %s", (tz) => {
+    const savedTz = process.env.TZ;
+    beforeEach(() => { process.env.TZ = tz; });
+    afterEach(() => {
+      if (savedTz === undefined) delete process.env.TZ;
+      else process.env.TZ = savedTz;
+    });
+
+    it("[régression] devis créé à 0 h 30 à Paris : daté du jour de Paris dans l'email", () => {
+      // 04/11/2026 0 h 30 CET = 03/11 23 h 30 UTC.
+      const { html, text } = buildDevisEmail({ ...devis, createdAt: new Date("2026-11-03T23:30:00Z") });
+      expect(visible(html)).toContain("à compter du 04/11/2026");
+      expect(visible(html)).toContain("valable jusqu'au 04/12/2026");
+      expect(text).toContain("valable jusqu'au 04/12/2026");
+    });
+
+    it("[régression] validité traversant l'heure d'hiver : un jour de moins sous UTC avant correction", () => {
+      // 20/10/2026 0 h 30 CEST = 19/10 22 h 30 UTC ; + 30 jours = 19/11/2026.
+      const { text } = buildDevisEmail({ ...devis, createdAt: new Date("2026-10-19T22:30:00Z") });
+      expect(text).toContain("valable jusqu'au 19/11/2026");
+    });
+  });
+
+  it("sans raison sociale : objet sans tiret, pied de page générique, pas de signature vide", () => {
+    const { subject, html, text } = buildDevisEmail({ ...devis, companyName: "  " });
+    expect(subject).toBe("Devis DEV-2026-001");
+    expect(html).toContain("<strong>votre prestataire</strong> utilise");
+    expect(text.endsWith("répondre à cet email.")).toBe(true);
+  });
+});
+
+describe("raisonSociale / documentEmailSubject", () => {
+  it("raison sociale des Paramètres en priorité, puis nom d'inscription", () => {
+    expect(raisonSociale({ companyName: "Artisan Fictif SARL" }, { companyName: "Nom d'inscription" })).toBe("Artisan Fictif SARL");
+    expect(raisonSociale({ companyName: "  " }, { companyName: "Nom d'inscription" })).toBe("Nom d'inscription");
+    expect(raisonSociale(null, { companyName: " Nom d'inscription " })).toBe("Nom d'inscription");
+    expect(raisonSociale(null, null)).toBe("");
+  });
+
+  it("[régression] objet : raison sociale, jamais « Gestly » par défaut", () => {
+    expect(documentEmailSubject("Facture", "FAC-2026-001", "Artisan Fictif")).toBe("Facture FAC-2026-001 — Artisan Fictif");
+    expect(documentEmailSubject("Facture", "FAC-2026-001", "")).toBe("Facture FAC-2026-001");
+    expect(documentEmailSubject("Devis", "DEV-2026-001", "A\nB")).toBe("Devis DEV-2026-001 — A B");
   });
 });
 
@@ -112,6 +154,12 @@ describe("defaultFactureEmail", () => {
     expect(out.message).toMatch(/^Bonjour Client Fictif,/);
     expect(out.message).toMatch(/facture FAC-2026-001 d'un montant de 1\s740,00 € TTC/);
     expect(out.message).toMatch(/Cordialement,\nArtisan Fictif$/);
+  });
+
+  it("sans raison sociale : « Cordialement. » sans signature vide", () => {
+    const out = defaultFactureEmail({ number: "FAC-2026-001", totalTTC: 10, clientName: "C", companyName: "" });
+    expect(out.subject).toBe("Facture FAC-2026-001");
+    expect(out.message.endsWith("€ TTC.\n\nCordialement.")).toBe(true);
   });
 });
 

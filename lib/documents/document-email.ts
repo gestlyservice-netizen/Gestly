@@ -12,16 +12,29 @@
 import { escapeHtml } from "@/lib/email/escape-html";
 import { parseEmailAddress } from "@/lib/email/address";
 import { isRateLimited } from "@/lib/rate-limit";
-
-const TIME_ZONE = "Europe/Paris";
+import { finValiditeDevis, formatDateParis, formatJourFr } from "@/lib/dates/paris";
 
 export const fmtMontant = (n: number) =>
   n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // « 1,5 » et non « 1.5 » (même règle que le PDF).
 export const fmtQuantite = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
-// Date affichée au client : jour de Paris (le serveur Vercel est en UTC).
-export const fmtDateParis = (d: Date | string) =>
-  new Date(d).toLocaleDateString("fr-FR", { timeZone: TIME_ZONE });
+/**
+ * Raison sociale présentée au client (objet, en-tête, signature) : celle des
+ * Paramètres de l'entreprise, comme sur le PDF ; à défaut, le nom saisi à
+ * l'inscription. Jamais « Gestly ».
+ */
+export function raisonSociale(
+  settings: { companyName?: string | null } | null | undefined,
+  user: { companyName?: string | null } | null | undefined
+): string {
+  return settings?.companyName?.trim() || user?.companyName?.trim() || "";
+}
+
+/** « Devis|Facture <n°> — <raison sociale> », sans tiret si la raison sociale est vide. */
+export function documentEmailSubject(label: "Devis" | "Facture", number: string, companyName: string): string {
+  const name = singleLine(companyName);
+  return singleLine(name ? `${label} ${number} — ${name}` : `${label} ${number}`);
+}
 
 /** Expéditeur des emails de documents (domaine vérifié chez Resend en live). */
 export function documentEmailFrom(): string {
@@ -82,22 +95,16 @@ export interface DevisEmailInput {
   onlineUrl: string;
 }
 
-/** Fin de validité : même calcul que le PDF joint (date du devis + durée). */
-export function devisValidUntil(createdAt: Date, validityDays: number): Date {
-  const d = new Date(createdAt);
-  d.setDate(d.getDate() + validityDays);
-  return d;
-}
-
 export function devisPdfFilename(number: string): string {
   return `devis-${number}.pdf`;
 }
 
 export function buildDevisEmail(input: DevisEmailInput): { subject: string; html: string; text: string } {
   const e = escapeHtml;
-  const validUntil = fmtDateParis(devisValidUntil(input.createdAt, input.validityDays));
-  const company = e(input.companyName);
-  const subject = singleLine(`Devis ${input.number} — ${input.companyName}`);
+  // Même calcul que le PDF joint : jour du devis à Paris + durée.
+  const validUntil = formatJourFr(finValiditeDevis(input.createdAt, input.validityDays));
+  const company = e(input.companyName.trim());
+  const subject = documentEmailSubject("Devis", input.number, input.companyName);
 
   const cell = "padding:10px 12px;border-bottom:1px solid #f1f5f9";
   const head = "padding:10px 12px;color:#94a3b8;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0";
@@ -171,12 +178,12 @@ export function buildDevisEmail(input: DevisEmailInput): { subject: string; html
       </div>
       <p style="margin-top:32px;color:#94a3b8;font-size:13px;line-height:1.6;text-align:center">
         Pour accepter ce devis, veuillez nous contacter ou répondre à cet email.<br>
-        Devis valable ${e(input.validityDays)} jours à compter du ${e(fmtDateParis(input.createdAt))}.
+        Devis valable ${e(input.validityDays)} jours à compter du ${e(formatDateParis(input.createdAt))}.
       </p>
     </div>
     <div style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center">
       <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:0">
-        Vous recevez cet email car <strong>${company}</strong> utilise
+        Vous recevez cet email car <strong>${company || "votre prestataire"}</strong> utilise
         <strong>Gestly</strong> pour vous envoyer ses devis et factures.<br>
         Une question ? Contactez-nous à
         <a href="mailto:contact@gestly.fr" style="color:#94a3b8">contact@gestly.fr</a>.
@@ -199,8 +206,7 @@ export function buildDevisEmail(input: DevisEmailInput): { subject: string; html
     `Consulter le devis en ligne : ${input.onlineUrl}`,
     "",
     "Pour accepter ce devis, veuillez nous contacter ou répondre à cet email.",
-    "",
-    input.companyName,
+    ...(input.companyName.trim() ? ["", input.companyName.trim()] : []),
   ].join("\n");
 
   return { subject, html, text };
@@ -219,12 +225,13 @@ export function defaultFactureEmail(input: {
   clientName: string;
   companyName: string;
 }): { subject: string; message: string } {
+  const signature = input.companyName.trim();
   return {
-    subject: singleLine(`Facture ${input.number} — ${input.companyName}`),
+    subject: documentEmailSubject("Facture", input.number, input.companyName),
     message:
       `Bonjour ${input.clientName},\n\n` +
       `Veuillez trouver ci-joint votre facture ${input.number} d'un montant de ${fmtMontant(input.totalTTC)} € TTC.\n\n` +
-      `Cordialement,\n${input.companyName}`,
+      (signature ? `Cordialement,\n${signature}` : "Cordialement."),
   };
 }
 
