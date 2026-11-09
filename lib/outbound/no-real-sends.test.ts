@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
       devis: { findFirst: vi.fn() },
       relanceSettings: { findMany: vi.fn() },
       user: { findUnique: vi.fn() },
+      settings: { findUnique: vi.fn(async () => null) },
       facture: { findMany: vi.fn() },
       relance: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     },

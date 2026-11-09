@@ -99,7 +99,7 @@ export default function PrintFacturePage() {
   const lines      = (facture.lines ?? []).length > 0 ? facture.lines : (facture.devis?.lines ?? []);
   const isPaid     = facture.status === "payee";
   const adresseLigne2 = [settings?.codePostal, settings?.ville].filter(Boolean).join(" ");
-  const mentions   = documentLegalMentions("facture", settings);
+  const mentions   = documentLegalMentions("facture", settings, { issuedAt: facture.createdAt, dueDate: facture.dueDate });
 
   return (
     <>

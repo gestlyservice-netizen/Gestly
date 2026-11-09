@@ -53,6 +53,10 @@ export interface DocumentPdfOptions {
   extraNote?: string | null;
   // Devis : durée de validité, reprise dans les mentions légales.
   validityDays?: number;
+  // Facture : émission et échéance, pour les conditions de paiement
+  // (jamais « à réception » si l'échéance est postérieure à l'émission).
+  issuedAt?: Date | string | null;
+  dueDate?: Date | string | null;
   settings: DocumentPdfSettings | null;
 }
 
@@ -257,6 +261,8 @@ export function generateDocumentPdfBuffer(opts: DocumentPdfOptions): Buffer {
   // ── Pied de page / mentions légales — sur chaque page ──
   const mentions = documentLegalMentions(MENTION_KIND[opts.docTypeLabel], opts.settings, {
     validityDays: opts.validityDays,
+    issuedAt: opts.issuedAt,
+    dueDate: opts.dueDate,
   });
   const pageCount = doc.getNumberOfPages();
   for (let page = 1; page <= pageCount; page++) {
@@ -350,6 +356,8 @@ export function generateFacturePdfBuffer(
     totalTVA: facture.totalTVA,
     totalTTC: facture.totalTTC,
     notes: facture.notes,
+    issuedAt: facture.createdAt,
+    dueDate: facture.dueDate,
     settings,
   });
 }

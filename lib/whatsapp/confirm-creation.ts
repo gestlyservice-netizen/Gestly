@@ -81,6 +81,7 @@ export async function confirmDevisCreation(
             phone: pendingDevis.client.telephone.value,
             email: pendingDevis.client.email.value,
             address: pendingDevis.client.adresse.value,
+            invalidEmail: "ignore",
           },
           tx
         );

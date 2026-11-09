@@ -80,6 +80,19 @@ try {
   $tables = & $psql -X -A -t -d $local -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'"
   Write-Host "OK    Schéma appliqué ($($tables.Trim()) tables)"
 
+  # 2 bis. Répétition de la migration proposée (limitation de débit partagée) :
+  # up → down → up, comme elle serait appliquée puis annulée sur Supabase.
+  $migrations = Join-Path $root "prisma\manual-migrations"
+  # Sans guillemets doubles : PowerShell 5.1 les retire des arguments passés à psql.
+  $present = { (& $psql -X -A -t -d $local -c "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'RateLimitBucket')").Trim() }
+  foreach ($step in "up", "down", "up") {
+    & $psql -X -q -v ON_ERROR_STOP=1 -d $local -f (Join-Path $migrations "20261109_rate_limit_bucket_$step.sql") | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Migration 20261109_rate_limit_bucket_$step.sql en échec." }
+    $expected = if ($step -eq "up") { "t" } else { "f" }
+    if ((& $present) -ne $expected) { throw "Migration $step : présence de RateLimitBucket inattendue." }
+    Write-Host "OK    Migration 20261109_rate_limit_bucket_$step.sql"
+  }
+
   # 3. Recette : serveur simulé en UTC (Vercel), aucune autre variable.
   $env:GESTLY_RECETTE_PG = $local
   $env:GESTLY_RECETTE_OUT = $OutDir

@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient, Client } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { normalizeClientEmail } from "@/lib/clients/client-email";
 
 // Règles métier extraites de app/api/clients/route.ts (POST) — seule règle
 // obligatoire : le nom. Tout le reste est optionnel et normalisé de la même
@@ -12,12 +13,19 @@ export interface CreateClientInput {
   phone?: string | null;
   address?: string | null;
   preferredContact?: string | null;
+  /**
+   * Adresse email invalide : "reject" (défaut, formulaires et API → erreur
+   * EMAIL_INVALID) ou "ignore" (agent WhatsApp : une adresse mal transcrite
+   * ne doit pas empêcher la création du devis ; le client est créé sans
+   * email, à compléter dans sa fiche).
+   */
+  invalidEmail?: "reject" | "ignore";
 }
 
 const VALID_CHANNELS = ["whatsapp", "email", "telephone"];
 
 export class CreateClientError extends Error {
-  constructor(message: string, readonly code: "NAME_REQUIRED") {
+  constructor(message: string, readonly code: "NAME_REQUIRED" | "EMAIL_INVALID") {
     super(message);
     this.name = "CreateClientError";
   }
@@ -30,11 +38,14 @@ export async function createClient(
   const name = input.name?.trim();
   if (!name) throw new CreateClientError("Le nom est obligatoire", "NAME_REQUIRED");
 
+  const email = normalizeClientEmail(input.email);
+  if (!email.ok && input.invalidEmail !== "ignore") throw new CreateClientError(email.error, "EMAIL_INVALID");
+
   return tx.client.create({
     data: {
       userId: input.userId,
       name,
-      email: input.email?.trim() || null,
+      email: email.ok ? email.email : null,
       phone: input.phone?.trim() || null,
       address: input.address?.trim() || null,
       preferredContact:

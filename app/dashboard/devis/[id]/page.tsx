@@ -13,6 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { defaultDueDateIso, jourParis } from "@/lib/factures/echeance";
+import { MentionEcheance } from "@/components/factures/mention-echeance";
 
 /* ── Types ─────────────────────────────────────────────── */
 interface DevisLine {
@@ -628,6 +629,7 @@ export default function DevisDetailPage() {
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <p className="text-xs text-slate-400">30 jours après l&apos;émission par défaut, modifiable. La facture émise ne pourra plus être modifiée.</p>
+            <MentionEcheance dueDate={convertDueDate} />
           </div>
           <DialogFooter>
             <button

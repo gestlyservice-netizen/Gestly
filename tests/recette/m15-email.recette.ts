@@ -76,6 +76,9 @@ import { GET as factureEmailDefaults, POST as sendFacture } from "@/app/api/fact
 import { POST as createAvoir } from "@/app/api/factures/[id]/avoir/route";
 import { GET as avoirPdf } from "@/app/api/avoirs/[id]/pdf/route";
 import { defaultDueDateIso } from "@/lib/factures/echeance";
+import { PUT as updateClient } from "@/app/api/clients/[id]/route";
+import { runRelancesCheck } from "@/lib/relances/engine";
+import { ajouterJours, jourParis } from "@/lib/dates/paris";
 
 // ─── Journal de recette ──────────────────────────────────────────────────────
 type Step = { id: string; titre: string; attendu: string; observe: string; ok: boolean };
@@ -189,19 +192,28 @@ describe("Recette M15 — envoi des devis et factures par email (base locale, si
       });
   });
 
-  it("R3 — clients fictifs (email valide, sans email, email invalide)", async () => {
-    await step("R3", "Clients", "3 clients créés", async () => {
-      as("clerk_recette_A");
-      const mk = async (body: Record<string, unknown>) => {
-        const res = await createClient(json(body));
-        expect(res.status).toBeLessThan(300);
-        return (await res.json()).id as string;
-      };
-      clientId = await mk({ name: "Client Recette", email: "client.recette@example.com", preferredContact: "email" });
-      clientSansEmailId = await mk({ name: "Client Sans Email", preferredContact: "email" });
-      clientEmailInvalideId = await mk({ name: "Client Email Invalide", email: "a@example.com, b@example.com", preferredContact: "email" });
-      return `3 clients ; l'adresse « a@example.com, b@example.com » est acceptée par la fiche client (non validée à la saisie)`;
-    });
+  it("R3 — clients fictifs ; adresse invalide refusée à la création ; ancienne fiche invalide conservée", async () => {
+    await step("R3", "Clients",
+      "2 clients créés ; adresse invalide refusée (400) ; ancienne fiche invalide (antérieure à la validation) conservée",
+      async () => {
+        as("clerk_recette_A");
+        const mk = async (body: Record<string, unknown>) => {
+          const res = await createClient(json(body));
+          expect(res.status).toBe(201);
+          return (await res.json()).id as string;
+        };
+        clientId = await mk({ name: "Client Recette", email: "client.recette@example.com", preferredContact: "email" });
+        clientSansEmailId = await mk({ name: "Client Sans Email", preferredContact: "email" });
+        const refused = await createClient(json({ name: "Client Email Invalide", email: "a@example.com, b@example.com" }));
+        expect(refused.status).toBe(400);
+        const message = (await refused.json()).error;
+        expect(await prisma.client.count({ where: { name: "Client Email Invalide" } })).toBe(0);
+        // Fiche créée AVANT la validation (donnée fictive locale) : elle doit rester utilisable.
+        clientEmailInvalideId = (await prisma.client.create({
+          data: { userId: userA.id, name: "Ancien client", email: "a@example.com, b@example.com", preferredContact: "email" },
+        })).id;
+        return `2 clients créés (201) ; « a@example.com, b@example.com » refusée : 400 « ${message} » ; ancienne fiche invalide insérée pour R7`;
+      });
   });
 
   it("R4 — devis de la recette M4 : montants au centime", async () => {
@@ -349,6 +361,11 @@ describe("Recette M15 — envoi des devis et factures par email (base locale, si
       expect(p.replyTo).toBe("contact.menuiserie@example.com");
       const pdf = p.attachments[0].content;
       for (const s of [factureNumber, "(55,36 ", "(50,30 ", "(5,06 ", "40 euros", "Menuiserie Fictive SARL"]) expect(pdfHas(pdf, s)).toBe(true);
+      // Échéance à J+30 : la date est imprimée, jamais « à réception » ; l'email la reprend.
+      const echeance = new Date(`${defaultDueDateIso()}T00:00:00Z`).toLocaleDateString("fr-FR", { timeZone: "UTC" });
+      expect(pdfHas(pdf, `Date d'échéance du paiement : ${echeance}.`)).toBe(true);
+      expect(/r[ée]ception/i.test(pdf.toString("latin1"))).toBe(false);
+      expect(p.text).toContain(`à régler au plus tard le ${echeance}`);
       const dl = Buffer.from(await (await facturePdf(get(), ctx(factureId))).arrayBuffer());
       expect(pdfStrings(dl).length).toBeGreaterThan(10);
       expect(pdfStrings(pdf)).toEqual(pdfStrings(dl));
@@ -493,8 +510,63 @@ describe("Recette M15 — envoi des devis et factures par email (base locale, si
     });
   });
 
-  it("R20 — bilan : aucun appel réseau, aucun client Resend en simulation, état de la base", async () => {
-    await step("R20", "Bilan", "fetch 0 ; Resend instancié uniquement en R18 ; états cohérents en base", async () => {
+  it("R20 — ancienne fiche à l'adresse invalide : modifiable sans corriger l'email ; nouvelle adresse invalide refusée", async () => {
+    await step("R20", "Modification d'une ancienne fiche", "200 si l'adresse est inchangée ; 400 si elle est remplacée par une adresse invalide", async () => {
+      as("clerk_recette_A");
+      const ok = await updateClient(json({ name: "Ancien client renommé", email: "a@example.com, b@example.com" }, "PUT"), ctx(clientEmailInvalideId));
+      expect(ok.status).toBe(200);
+      const ko = await updateClient(json({ name: "Ancien client renommé", email: "a@example.com; c@example.com" }, "PUT"), ctx(clientEmailInvalideId));
+      expect(ko.status).toBe(400);
+      const row = await prisma.client.findUnique({ where: { id: clientEmailInvalideId } });
+      expect(row).toMatchObject({ name: "Ancien client renommé", email: "a@example.com, b@example.com" });
+      return `PUT adresse inchangée : 200 (nom modifié) ; PUT nouvelle adresse invalide : 400 ; fiche conservée`;
+    });
+  });
+
+  it("R21 — relance J1 : objet avec la raison sociale, échéance en jours civils de Paris", async () => {
+    await step("R21", "Relance par email", "objet « Relance — Facture N — Menuiserie Fictive SARL », réponse vers l'email pro", async () => {
+      as("clerk_recette_A");
+      // Échéance 4 jours civils plus tôt (minuit UTC, comme parseDueDate), relances activées.
+      const due = new Date(`${ajouterJours(jourParis(new Date()), -4)}T00:00:00.000Z`);
+      await prisma.facture.update({ where: { id: factureId }, data: { dueDate: due } });
+      await prisma.relanceSettings.create({ data: { userId: userA.id, enabled: true, delaiJ1: 3, delaiJ2: 10, delaiJ3: 21, canalEmail: true, canalSms: false } });
+      const before = h.captured.length;
+      const summary = await runRelancesCheck();
+      const relances = h.captured.slice(before);
+      expect(relances).toHaveLength(1);
+      const p = relances[0] as { subject: string; to: string; replyTo?: string; text: string };
+      expect(p.subject).toBe(`Relance — Facture ${factureNumber} — Menuiserie Fictive SARL`);
+      expect(p.to).toBe("client.recette@example.com");
+      expect(p.replyTo).toBe("contact.menuiserie@example.com");
+      expect(p.text).toContain("depuis 4 jour(s)");
+      save("relance-email.txt", `Objet : ${p.subject}
+À : ${p.to}
+Répondre à : ${p.replyTo}
+
+${p.text}`);
+      const rel = await prisma.relance.findMany({ where: { factureId } });
+      expect(rel.map((r) => [r.niveau, r.canal, r.statut])).toEqual([[1, "email", "envoyee"]]);
+      return `objet « ${p.subject} » ; 4 jours de retard ; relance J1 enregistrée « envoyee » (simulée) ; résumé : ${JSON.stringify(summary)}`;
+    });
+  });
+
+  it("R22 — relance pour un client à l'adresse invalide : ignorée, aucune tentative", async () => {
+    await step("R22", "Relance, adresse invalide", "aucun envoi, aucune ligne de relance", async () => {
+      as("clerk_recette_A");
+      const d = await (await createDevis(json({ clientId: clientEmailInvalideId, lines: [{ description: "Pose", quantity: 1, unitPriceHT: 100, tvaRate: 20 }] }))).json();
+      await patchDevis(json({ status: "signe" }, "PATCH"), ctx(d.id));
+      const f = await (await toFacture(json({ dueDate: defaultDueDateIso() }), ctx(d.id))).json();
+      await prisma.facture.update({ where: { id: f.id }, data: { dueDate: new Date(`${ajouterJours(jourParis(new Date()), -5)}T00:00:00.000Z`) } });
+      const before = h.captured.length;
+      await runRelancesCheck();
+      expect(h.captured.length).toBe(before);
+      expect(await prisma.relance.count({ where: { factureId: f.id } })).toBe(0);
+      return `${f.number} (client « a@example.com, b@example.com ») : aucun envoi, aucune relance réservée`;
+    });
+  });
+
+  it("R23 — bilan : aucun appel réseau, aucun client Resend en simulation, état de la base", async () => {
+    await step("R23", "Bilan", "fetch 0 ; Resend instancié uniquement en R18 ; états cohérents en base", async () => {
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(h.Resend.mock.calls.length).toBe(1); // R18 seulement
       const [devis, factures, avoirs, devisEnvoyes, facturesEnvoyees] = await Promise.all([

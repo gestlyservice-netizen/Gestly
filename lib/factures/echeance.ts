@@ -1,5 +1,5 @@
 import { factureBalance, type FactureForBalance } from "@/lib/factures/balance";
-import { ajouterJours, jourParis } from "@/lib/dates/paris";
+import { ajouterJours, jourEcheance, joursEntre, jourParis } from "@/lib/dates/paris";
 
 // Échéance et retard des factures — règle unique partagée par la création
 // (formulaire, transformation d'un devis), les écrans (liste, fiche, tableau
@@ -17,7 +17,6 @@ import { ajouterJours, jourParis } from "@/lib/dates/paris";
 // - une ancienne facture sans échéance n'est jamais « en retard » ni relancée.
 
 export const DELAI_PAIEMENT_DEFAUT_JOURS = 30;
-const DAY = 86_400_000;
 // Jour calendaire de Paris : règle commune aux documents (lib/dates/paris.ts).
 export { jourParis };
 
@@ -52,10 +51,15 @@ export function parseDueDate(value: unknown, issuedAt: Date = new Date()): DueDa
   return { ok: true, date };
 }
 
-/** Jours entiers écoulés depuis l'échéance (0 le jour même) ; null sans échéance. */
+/**
+ * Jours CIVILS écoulés depuis l'échéance, à l'heure de Paris (0 le jour même,
+ * 1 dès 0 h le lendemain) ; null sans échéance. Avant : différence en heures
+ * depuis minuit UTC de l'échéance, donc « en retard » seulement à 1 h (hiver)
+ * ou 2 h (été) à Paris, et décalage possible autour des changements d'heure.
+ */
 export function joursDeRetard(dueDate: Date | string | null | undefined, now: Date = new Date()): number | null {
   if (!dueDate) return null;
-  return Math.floor((now.getTime() - new Date(dueDate).getTime()) / DAY);
+  return joursEntre(jourEcheance(dueDate), jourParis(now));
 }
 
 export interface FactureForStatut extends FactureForBalance {

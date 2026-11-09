@@ -10,11 +10,10 @@ import {
   buildDevisEmail,
   devisPdfFilename,
   documentEmailFrom,
-  isDocumentEmailRateLimited,
   raisonSociale,
   replyToFrom,
-  DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE,
 } from "@/lib/documents/document-email";
+import { DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE, isDocumentEmailRateLimited } from "@/lib/documents/document-email-limit";
 
 // Envoi d'un devis par email au client : corps HTML (données échappées) +
 // version texte + PDF joint (même moteur que le bouton « PDF » et WhatsApp).
@@ -48,7 +47,7 @@ export async function POST(
     );
   }
 
-  if (isDocumentEmailRateLimited(user.id, "devis", devis.id)) {
+  if (await isDocumentEmailRateLimited(user.id, "devis", devis.id)) {
     return NextResponse.json({ error: DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE }, { status: 429 });
   }
 

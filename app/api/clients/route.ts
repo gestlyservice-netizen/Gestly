@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/clients/create-client";
+import { createClient, CreateClientError } from "@/lib/clients/create-client";
 
 export async function GET() {
   try {
@@ -74,6 +74,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(client, { status: 201 });
   } catch (err) {
+    if (err instanceof CreateClientError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     console.error("[POST /api/clients]", err);
     return NextResponse.json(
       { error: "Erreur serveur lors de la création du client" },

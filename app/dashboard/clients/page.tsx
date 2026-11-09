@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { CLIENT_EMAIL_ERROR, isStoredEmailInvalid, normalizeClientEmail } from "@/lib/clients/client-email";
 import { Plus, Pencil, Trash2, Users, Loader2, MessageCircle, Mail, Phone, Search, X } from "lucide-react";
 import {
   Dialog,
@@ -53,14 +54,17 @@ const CHANNEL_BADGE: Record<ContactChannel, { label: string; cls: string; icon: 
 };
 
 /* ── Schema de validation ─────────────────────────────── */
-const clientSchema = z.object({
+// Email : même règle que le serveur (lib/clients/client-email.ts) ; l'adresse
+// inchangée d'une ancienne fiche reste acceptée pour ne pas bloquer la
+// modification des autres champs.
+const buildClientSchema = (currentEmail: string | null) => z.object({
   name:             z.string().min(1, "Le nom est obligatoire"),
-  email:            z.string().email("Email invalide").optional().or(z.literal("")),
+  email:            z.string().optional().refine((v) => normalizeClientEmail(v, currentEmail).ok, { message: CLIENT_EMAIL_ERROR }),
   phone:            z.string().optional(),
   address:          z.string().optional(),
   preferredContact: z.enum(["whatsapp", "email", "telephone"]),
 });
-type ClientForm = z.infer<typeof clientSchema>;
+type ClientForm = z.infer<ReturnType<typeof buildClientSchema>>;
 
 /* ── Type client ─────────────────────────────────────── */
 interface Client {
@@ -86,6 +90,7 @@ export default function ClientsPage() {
   const [apiError, setApiError]             = useState<string | null>(null);
   const [search, setSearch]                 = useState("");
   const [channelFilter, setChannelFilter]   = useState<"all" | ContactChannel>("all");
+  const currentEmailRef = useRef<string | null>(null);
 
   const {
     register,
@@ -94,7 +99,12 @@ export default function ClientsPage() {
     watch,
     setValue,
     formState: { errors },
-  } = useForm<ClientForm>({ resolver: zodResolver(clientSchema), defaultValues: { preferredContact: "email" } });
+  } = useForm<ClientForm>({
+    // Schéma recalculé à chaque validation : il dépend de l'adresse
+    // enregistrée du client en cours de modification.
+    resolver: (values, context, options) => zodResolver(buildClientSchema(currentEmailRef.current))(values, context, options),
+    defaultValues: { preferredContact: "email" },
+  });
 
   const selectedChannel = watch("preferredContact");
 
@@ -114,6 +124,7 @@ export default function ClientsPage() {
   /* Ouvrir modal ajout */
   const openAdd = () => {
     setEditingClient(null);
+    currentEmailRef.current = null;
     setApiError(null);
     reset({ name: "", email: "", phone: "", address: "", preferredContact: "email" });
     setModalOpen(true);
@@ -123,6 +134,7 @@ export default function ClientsPage() {
   const openEdit = (client: Client) => {
     setApiError(null);
     setEditingClient(client);
+    currentEmailRef.current = client.email;
     reset({
       name:             client.name,
       email:            client.email ?? "",
@@ -302,6 +314,11 @@ export default function ClientsPage() {
                     </TableCell>
                     <TableCell className="text-slate-600">
                       {client.email ?? <span className="text-slate-300">—</span>}
+                      {isStoredEmailInvalid(client.email) && (
+                        <span className="ml-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded" title="Adresse invalide : envois par email refusés">
+                          invalide
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-slate-600 max-w-[200px] truncate">
                       {client.address ?? <span className="text-slate-300">—</span>}
@@ -403,16 +420,24 @@ export default function ClientsPage() {
               <label htmlFor="email" className="text-sm font-medium text-slate-700">
                 Email
               </label>
+              {/* type="text" : la validation native de type="email" bloquerait
+                  l'enregistrement d'une ancienne fiche à l'adresse inchangée. */}
               <input
                 id="email"
-                type="email"
+                type="text"
+                inputMode="email"
+                autoComplete="email"
                 className={inputCls}
                 placeholder="Ex : martin@email.fr"
                 {...register("email")}
               />
-              {errors.email && (
+              {errors.email ? (
                 <p className="text-xs text-red-500">{errors.email.message}</p>
-              )}
+              ) : editingClient && isStoredEmailInvalid(editingClient.email) ? (
+                <p className="text-xs text-amber-600">
+                  Adresse enregistrée invalide : les envois par email à ce client sont refusés tant qu&apos;elle n&apos;est pas corrigée.
+                </p>
+              ) : null}
             </div>
 
             {/* Adresse */}

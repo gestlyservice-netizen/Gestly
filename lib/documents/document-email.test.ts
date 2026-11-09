@@ -1,19 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   buildDevisEmail,
   defaultFactureEmail,
   documentEmailFrom,
   documentEmailSubject,
   raisonSociale,
-  isDocumentEmailRateLimited,
   parseFactureEmailOverrides,
   replyToFrom,
   singleLine,
-  DOCUMENT_EMAIL_LIMITS,
   FACTURE_EMAIL_LIMITS,
   type DevisEmailInput,
 } from "@/lib/documents/document-email";
-import { clearRateLimits } from "@/lib/rate-limit";
 
 // Devis de la recette M4 : 3 × 0,10 € à 20 % ; 1,5 × 33,33 € à 10 %.
 const devis: DevisEmailInput = {
@@ -226,45 +223,12 @@ describe("expéditeur et adresse de réponse", () => {
   });
 });
 
-describe("isDocumentEmailRateLimited", () => {
-  beforeEach(() => clearRateLimits());
-
-  it(`même document : ${DOCUMENT_EMAIL_LIMITS.perDocument.limit} envois puis refus`, () => {
-    const results = Array.from({ length: DOCUMENT_EMAIL_LIMITS.perDocument.limit + 1 }, () =>
-      isDocumentEmailRateLimited("u1", "devis", "d1"));
-    expect(results.slice(0, -1).every((r) => r === false)).toBe(true);
-    expect(results.at(-1)).toBe(true);
-  });
-
-  it("devis et facture de même identifiant comptés séparément ; autre document libre", () => {
-    for (let i = 0; i < 4; i++) isDocumentEmailRateLimited("u1", "devis", "x");
-    expect(isDocumentEmailRateLimited("u1", "facture", "x")).toBe(false);
-    expect(isDocumentEmailRateLimited("u1", "devis", "y")).toBe(false);
-  });
-
-  it(`compte : ${DOCUMENT_EMAIL_LIMITS.perAccount.limit} envois par heure, tous documents confondus ; autre compte libre`, () => {
-    const { limit } = DOCUMENT_EMAIL_LIMITS.perAccount;
-    for (let i = 0; i < limit; i++) expect(isDocumentEmailRateLimited("u1", "facture", `f${i}`)).toBe(false);
-    expect(isDocumentEmailRateLimited("u1", "devis", "nouveau")).toBe(true);
-    expect(isDocumentEmailRateLimited("u2", "devis", "nouveau")).toBe(false);
-  });
-
-  it("un document bloqué ne consomme pas le quota du compte", () => {
-    for (let i = 0; i < 20; i++) isDocumentEmailRateLimited("u1", "devis", "spam");
-    // 3 envois réels comptés pour le compte ; il en reste 47.
-    const { limit } = DOCUMENT_EMAIL_LIMITS.perAccount;
-    for (let i = 0; i < limit - 3; i++) expect(isDocumentEmailRateLimited("u1", "facture", `f${i}`)).toBe(false);
-    expect(isDocumentEmailRateLimited("u1", "facture", "dernier")).toBe(true);
-  });
-
-  it("fenêtre écoulée : le document peut être renvoyé", () => {
-    vi.useFakeTimers();
-    try {
-      for (let i = 0; i < 4; i++) isDocumentEmailRateLimited("u1", "devis", "d1");
-      vi.advanceTimersByTime(DOCUMENT_EMAIL_LIMITS.perDocument.windowMs + 1);
-      expect(isDocumentEmailRateLimited("u1", "devis", "d1")).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
+describe("[régression] email du devis sur téléphone", () => {
+  it("style mobile présent (marges réduites, tableau compact) et largeur des totaux bornée", () => {
+    const { html } = buildDevisEmail(devis);
+    expect(html).toContain("@media only screen and (max-width: 520px)");
+    expect(html).toContain('class="g-card"');
+    expect(html).toContain('class="g-lines"');
+    expect(html).toMatch(/class="g-totals"[^>]*max-width:100%/);
   });
 });

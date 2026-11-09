@@ -26,6 +26,26 @@ export function ajouterJours(jour: string, n: number): string {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+/** Nombre de jours civils de `de` à `a` (AAAA-MM-JJ), négatif si `a` précède `de`. */
+export function joursEntre(de: string, a: string): number {
+  const t = (jour: string) => {
+    const m = DAY_RE.exec(jour);
+    if (!m) throw new RangeError(`Jour invalide : ${jour}`);
+    return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  };
+  return Math.round((t(a) - t(de)) / DAY_MS);
+}
+
+/**
+ * Jour AAAA-MM-JJ d'une date d'échéance : une chaîne « AAAA-MM-JJ » (champ
+ * date d'un formulaire) est prise telle quelle ; un instant (échéance
+ * enregistrée à minuit UTC, ou ancienne échéance à minuit de Paris) est
+ * ramené à son jour de Paris.
+ */
+export function jourEcheance(d: Date | string): string {
+  return typeof d === "string" && DAY_RE.test(d) ? d : jourParis(d);
+}
+
 /** AAAA-MM-JJ → JJ/MM/AAAA. */
 export function formatJourFr(jour: string): string {
   const m = DAY_RE.exec(jour);

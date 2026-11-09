@@ -8,11 +8,11 @@
 //     échappée avant insertion dans le HTML (escapeHtml) ;
 //   - le destinataire est validé (parseEmailAddress) ;
 //   - les envois sont limités par document et par compte
-//     (isDocumentEmailRateLimited).
+//     (lib/documents/document-email-limit.ts, partagé entre instances).
 import { escapeHtml } from "@/lib/email/escape-html";
 import { parseEmailAddress } from "@/lib/email/address";
-import { isRateLimited } from "@/lib/rate-limit";
 import { finValiditeDevis, formatDateParis, formatJourFr } from "@/lib/dates/paris";
+import { echeanceUlterieure } from "@/lib/documents/legal-mentions";
 
 export const fmtMontant = (n: number) =>
   n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -30,8 +30,8 @@ export function raisonSociale(
   return settings?.companyName?.trim() || user?.companyName?.trim() || "";
 }
 
-/** « Devis|Facture <n°> — <raison sociale> », sans tiret si la raison sociale est vide. */
-export function documentEmailSubject(label: "Devis" | "Facture", number: string, companyName: string): string {
+/** « Devis|Facture|Relance — Facture <n°> — <raison sociale> », sans tiret si la raison sociale est vide. */
+export function documentEmailSubject(label: "Devis" | "Facture" | "Relance — Facture", number: string, companyName: string): string {
   const name = singleLine(companyName);
   return singleLine(name ? `${label} ${number} — ${name}` : `${label} ${number}`);
 }
@@ -54,30 +54,7 @@ export function replyToFrom(emailPro: string | null | undefined): { replyTo: str
   return replyTo ? { replyTo } : {};
 }
 
-// ─── Limitation de débit ────────────────────────────────────────────────────
-// En mémoire, par instance serverless (voir lib/rate-limit.ts) : protège
-// contre les doubles clics, les boucles côté navigateur et l'envoi en rafale
-// au même client ; ce n'est pas une garantie distribuée.
-export const DOCUMENT_EMAIL_LIMITS = {
-  // Même document : 3 envois par tranche de 10 minutes.
-  perDocument: { limit: 3, windowMs: 10 * 60 * 1000 },
-  // Tous documents d'un compte : 50 envois par heure (facturation de fin de mois).
-  perAccount: { limit: 50, windowMs: 60 * 60 * 1000 },
-} as const;
-
-export const DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE =
-  "Trop d'envois en peu de temps. Patientez quelques minutes avant de renvoyer ce document.";
-
-export function isDocumentEmailRateLimited(
-  userId: string,
-  kind: "devis" | "facture",
-  documentId: string
-): boolean {
-  const { perDocument, perAccount } = DOCUMENT_EMAIL_LIMITS;
-  // Un document bloqué ne consomme pas le quota du compte.
-  if (isRateLimited(`document-email:${kind}:${documentId}`, perDocument.limit, perDocument.windowMs)) return true;
-  return isRateLimited(`document-email:account:${userId}`, perAccount.limit, perAccount.windowMs);
-}
+// Limitation de débit : lib/documents/document-email-limit.ts.
 
 // ─── Devis ──────────────────────────────────────────────────────────────────
 export interface DevisEmailInput {
@@ -123,14 +100,26 @@ export function buildDevisEmail(input: DevisEmailInput): { subject: string; html
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  /* Téléphone (< 520 px) : marges réduites et tableau compact. Sans effet
+     dans les messageries qui ignorent <style> : la mise en page de base
+     reste lisible (largeurs en %, aucune largeur fixe au-delà de l'écran). */
+  @media only screen and (max-width: 520px) {
+    .g-card { margin: 0 !important; border-radius: 0 !important; }
+    .g-pad { padding: 24px 16px !important; }
+    .g-lines th, .g-lines td { padding: 8px 4px !important; font-size: 12px !important; }
+    .g-totals { width: 100% !important; }
+  }
+</style>
+</head>
 <body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-  <div style="max-width:620px;margin:40px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
-    <div style="background:#1e40af;padding:32px 40px">
+  <div class="g-card" style="max-width:620px;margin:40px auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+    <div class="g-pad" style="background:#1e40af;padding:32px 40px">
       <div style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.5px">${company}</div>
       <div style="color:#93c5fd;font-size:13px;margin-top:4px">Devis ${e(input.number)}</div>
     </div>
-    <div style="padding:40px">
+    <div class="g-pad" style="padding:40px">
       <p style="margin:0 0 24px;color:#475569;font-size:15px">
         Bonjour <strong style="color:#1e293b">${e(input.clientName)}</strong>,
       </p>
@@ -139,7 +128,7 @@ export function buildDevisEmail(input: DevisEmailInput): { subject: string; html
         <strong style="color:#1e40af">${e(fmtMontant(input.totalTTC))} € TTC</strong>,
         valable jusqu'au <strong>${e(validUntil)}</strong>.
       </p>
-      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:24px;font-size:13px">
+      <table class="g-lines" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:24px;font-size:13px">
         <thead>
           <tr style="background:#f8fafc">
             <th style="${head};text-align:left">Description</th>
@@ -151,7 +140,7 @@ export function buildDevisEmail(input: DevisEmailInput): { subject: string; html
         </thead>
         <tbody>${linesRows}</tbody>
       </table>
-      <table cellpadding="0" cellspacing="0" align="right" style="width:240px;font-size:14px">
+      <table class="g-totals" cellpadding="0" cellspacing="0" align="right" style="width:240px;max-width:100%;font-size:14px">
         <tr>
           <td style="padding:6px 0;color:#64748b">Total HT</td>
           <td style="padding:6px 0;text-align:right;color:#1e293b;font-weight:500">${e(fmtMontant(input.totalHT))} €</td>
@@ -181,7 +170,7 @@ export function buildDevisEmail(input: DevisEmailInput): { subject: string; html
         Devis valable ${e(input.validityDays)} jours à compter du ${e(formatDateParis(input.createdAt))}.
       </p>
     </div>
-    <div style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center">
+    <div class="g-pad" style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center">
       <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:0">
         Vous recevez cet email car <strong>${company || "votre prestataire"}</strong> utilise
         <strong>Gestly</strong> pour vous envoyer ses devis et factures.<br>
@@ -224,13 +213,18 @@ export function defaultFactureEmail(input: {
   totalTTC: number;
   clientName: string;
   companyName: string;
+  /** Émission et échéance : même règle que les conditions imprimées sur le PDF. */
+  issuedAt?: Date | string | null;
+  dueDate?: Date | string | null;
 }): { subject: string; message: string } {
   const signature = input.companyName.trim();
+  const due = echeanceUlterieure(input);
   return {
     subject: documentEmailSubject("Facture", input.number, input.companyName),
     message:
       `Bonjour ${input.clientName},\n\n` +
-      `Veuillez trouver ci-joint votre facture ${input.number} d'un montant de ${fmtMontant(input.totalTTC)} € TTC.\n\n` +
+      `Veuillez trouver ci-joint votre facture ${input.number} d'un montant de ${fmtMontant(input.totalTTC)} € TTC` +
+      (due ? `, à régler au plus tard le ${formatJourFr(due)}.\n\n` : `.\n\n`) +
       (signature ? `Cordialement,\n${signature}` : "Cordialement."),
   };
 }

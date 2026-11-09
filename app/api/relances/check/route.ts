@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { runRelancesCheck } from "@/lib/relances/engine";
+import { purgeExpiredRateLimits } from "@/lib/rate-limit-db";
 
 const ADMIN_EMAIL = "gestlyservice@gmail.com";
 
@@ -23,5 +24,14 @@ export async function GET(request: Request) {
   }
 
   const summary = await runRelancesCheck();
+
+  // Entretien quotidien de la limitation de débit partagée (compteurs
+  // expirés). Isolé : un échec ne change rien au résultat des relances.
+  try {
+    await purgeExpiredRateLimits();
+  } catch (err) {
+    console.error("[GET /api/relances/check] Purge RateLimitBucket :", err);
+  }
+
   return NextResponse.json(summary);
 }

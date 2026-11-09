@@ -30,6 +30,7 @@ import { runRelancesCheck } from "@/lib/relances/engine";
 import { clearSimulatedOutbox, getSimulatedOutbox } from "@/lib/outbound/mode";
 import { GET as cronRoute } from "@/app/api/relances/check/route";
 import { POST as saveRelanceSettings } from "@/app/api/settings/relances/route";
+import { ajouterJours, jourParis } from "@/lib/dates/paris";
 
 const DAY = 86_400_000;
 const ENV_KEYS = ["OUTBOUND_MODE", "VERCEL_ENV", "RESEND_API_KEY", "CRON_SECRET"] as const;
@@ -44,12 +45,15 @@ let userA: R, userB: R, clientA: R, clientB: R;
 function enableRelances(userId: string, extra: R = {}) {
   return seed("relanceSettings", { userId, enabled: true, delaiJ1: 3, delaiJ2: 10, delaiJ3: 21, canalEmail: true, canalSms: false, ...extra });
 }
-// Facture échue depuis `days` jours (+ 1 h pour éviter les bords de journée).
+// Facture échue depuis `days` jours civils (Paris) : échéance enregistrée à
+// minuit UTC du jour choisi, comme parseDueDate. Indépendant de l'heure à
+// laquelle la suite est lancée (avant : « maintenant − N jours − 1 h », qui
+// tomberait la veille entre 0 h et 1 h à Paris avec le calcul en jours civils).
 function overdue(userId: string, clientId: string, days: number, extra: R = {}) {
   return seed("facture", {
     userId, clientId, number: `FAC-${userId}-${days}-${Math.random().toString(36).slice(2, 6)}`,
     status: "emise", totalHT: 100, totalTVA: 20, totalTTC: 120,
-    dueDate: new Date(Date.now() - days * DAY - 3_600_000), ...extra,
+    dueDate: new Date(`${ajouterJours(jourParis(new Date()), -days)}T00:00:00.000Z`), ...extra,
   });
 }
 const sent = () => getSimulatedOutbox().filter((m) => m.channel === "email");
@@ -120,7 +124,7 @@ describe("2. délais 3 / 10 / 21 jours après échéance", () => {
     const f = overdue(userA.id, clientA.id, 3);
     await runRelancesCheck();
     for (const days of [10, 21]) {
-      fakePrisma.store.facture.find((x) => x.id === f.id)!.dueDate = new Date(Date.now() - days * DAY - 3_600_000);
+      fakePrisma.store.facture.find((x) => x.id === f.id)!.dueDate = new Date(`${ajouterJours(jourParis(new Date()), -days)}T00:00:00.000Z`);
       await runRelancesCheck();
       await runRelancesCheck();
     }
@@ -415,5 +419,51 @@ describe("8. messages personnalisés", () => {
     h.resendSend.mockResolvedValue(OK);
     await runRelancesCheck();
     expect(emailTexts()[0]).toContain("Sauf erreur de notre part");
+  });
+});
+
+describe("9. objet, raison sociale et adresse du client", () => {
+  it("[régression] objet « Relance — Facture N — <raison sociale des Paramètres> », signature et réponse à l'artisan", async () => {
+    enableRelances(userA.id);
+    seed("settings", { userId: userA.id, companyName: "Menuiserie A SARL", emailPro: "contact.a@example.com" });
+    overdue(userA.id, clientA.id, 4, { number: "FAC-2026-010" });
+    live();
+    h.resendSend.mockResolvedValue(OK);
+    await runRelancesCheck();
+    const payload = h.resendSend.mock.calls[0][0];
+    expect(payload.subject).toBe("Relance — Facture FAC-2026-010 — Menuiserie A SARL");
+    expect(payload.replyTo).toBe("contact.a@example.com");
+    expect(payload.text.endsWith("Cordialement,\nMenuiserie A SARL")).toBe(true);
+    expect(payload.to).toBe("client.a@example.com");
+  });
+
+  it("sans Paramètres : nom d'inscription dans l'objet, pas d'adresse de réponse", async () => {
+    enableRelances(userA.id);
+    overdue(userA.id, clientA.id, 4, { number: "FAC-2026-011" });
+    live();
+    h.resendSend.mockResolvedValue(OK);
+    await runRelancesCheck();
+    expect(h.resendSend.mock.calls[0][0].subject).toBe("Relance — Facture FAC-2026-011 — Artisan A");
+    expect(h.resendSend.mock.calls[0][0]).not.toHaveProperty("replyTo");
+  });
+
+  it("[régression] adresse du client invalide (ancienne fiche) : ignorée, ni réservée ni tentée 5 fois", async () => {
+    enableRelances(userA.id);
+    const bad = seed("client", { userId: userA.id, name: "Ancien client", email: "a@example.com, b@example.com" });
+    overdue(userA.id, bad.id, 4);
+    live();
+    h.resendSend.mockResolvedValue(OK);
+    const summary = await runRelancesCheck();
+    expect(h.resendSend).not.toHaveBeenCalled();
+    expect(rows("relance")).toHaveLength(0);
+    expect(summary.skipped).toBeGreaterThanOrEqual(1);
+  });
+
+  it("simulation : l'objet journalisé porte la raison sociale", async () => {
+    enableRelances(userA.id);
+    seed("settings", { userId: userA.id, companyName: "Menuiserie A SARL" });
+    overdue(userA.id, clientA.id, 4, { number: "FAC-2026-012" });
+    await runRelancesCheck();
+    expect(sent()[0].summary).toContain('subject="Relance — Facture FAC-2026-012 — Menuiserie A SARL"');
   });
 });

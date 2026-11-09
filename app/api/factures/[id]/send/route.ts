@@ -9,12 +9,11 @@ import {
   defaultFactureEmail,
   documentEmailFrom,
   facturePdfFilename,
-  isDocumentEmailRateLimited,
   parseFactureEmailOverrides,
   raisonSociale,
   replyToFrom,
-  DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE,
 } from "@/lib/documents/document-email";
+import { DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE, isDocumentEmailRateLimited } from "@/lib/documents/document-email-limit";
 
 // Valeurs proposées dans la fenêtre « Envoyer la facture » : calculées ici,
 // avec la même règle que l'envoi (raison sociale des Paramètres), pour que
@@ -42,6 +41,8 @@ export async function GET(
       totalTTC: facture.totalTTC,
       clientName: facture.client.name,
       companyName: raisonSociale(settings, user),
+      issuedAt: facture.createdAt,
+      dueDate: facture.dueDate,
     });
     return NextResponse.json({ to: facture.client.email ?? "", subject, message });
   } catch (err) {
@@ -93,7 +94,7 @@ export async function POST(
     }
   }
 
-  if (isDocumentEmailRateLimited(user.id, "facture", facture.id)) {
+  if (await isDocumentEmailRateLimited(user.id, "facture", facture.id)) {
     return NextResponse.json({ error: DOCUMENT_EMAIL_RATE_LIMIT_MESSAGE }, { status: 429 });
   }
 
@@ -113,6 +114,8 @@ export async function POST(
     totalTTC: facture.totalTTC,
     clientName: facture.client.name,
     companyName: raisonSociale(settings, user),
+    issuedAt: facture.createdAt,
+    dueDate: facture.dueDate,
   });
 
   try {

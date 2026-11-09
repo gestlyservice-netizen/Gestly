@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, isSubscriptionBlocked } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { normalizeClientEmail } from "@/lib/clients/client-email";
 
 async function getClientForUser(id: string, userId: string) {
   return prisma.client.findFirst({ where: { id, userId } });
@@ -47,12 +48,19 @@ export async function PUT(
       );
     }
 
+    // Nouvelle adresse : une seule adresse valide ; adresse inchangée d'une
+    // ancienne fiche : conservée (lib/clients/client-email.ts).
+    const emailResult = normalizeClientEmail(email, existing.email);
+    if (!emailResult.ok) {
+      return NextResponse.json({ error: emailResult.error }, { status: 400 });
+    }
+
     const validChannels = ["whatsapp", "email", "telephone"];
     const client = await prisma.client.update({
       where: { id: params.id },
       data: {
         name: name.trim(),
-        email: typeof email === "string" && email.trim() ? email.trim() : null,
+        email: emailResult.email,
         phone: typeof phone === "string" && phone.trim() ? phone.trim() : null,
         address:
           typeof address === "string" && address.trim()

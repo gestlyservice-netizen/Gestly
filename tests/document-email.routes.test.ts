@@ -44,6 +44,10 @@ const db = vi.hoisted(() => ({
   devis: { findFirst: vi.fn(), update: vi.fn() },
   facture: { findFirst: vi.fn(), update: vi.fn() },
   settings: { findUnique: vi.fn() },
+  // Table RateLimitBucket absente (migration non appliquée) : limite en
+  // mémoire. Le chemin PostgreSQL est testé dans lib/rate-limit-db.test.ts et
+  // sur un vrai PostgreSQL local (tests/recette/rate-limit.recette.ts).
+  $queryRaw: vi.fn(async () => [{ present: false }]),
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db, default: db }));
 vi.mock("@/lib/auth", async (importOriginal) => ({
@@ -59,7 +63,8 @@ import { POST as sendDevis } from "@/app/api/devis/[id]/send/route";
 import { POST as sendFacture, GET as factureEmailDefaults } from "@/app/api/factures/[id]/send/route";
 import { clearSimulatedOutbox, getSimulatedOutbox } from "@/lib/outbound/mode";
 import { clearRateLimits } from "@/lib/rate-limit";
-import { DOCUMENT_EMAIL_LIMITS } from "@/lib/documents/document-email";
+import { DOCUMENT_EMAIL_LIMITS } from "@/lib/documents/document-email-limit";
+import { resetRateLimitDbState } from "@/lib/rate-limit-db";
 
 const ENV_KEYS = ["OUTBOUND_MODE", "VERCEL_ENV", "RESEND_API_KEY", "RESEND_FROM_EMAIL"];
 let savedEnv: Record<string, string | undefined> = {};
@@ -97,6 +102,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearSimulatedOutbox();
   clearRateLimits();
+  resetRateLimitDbState();
   fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
     throw new Error("APPEL RÉSEAU INTERDIT dans les tests");
   });
@@ -332,8 +338,11 @@ describe("POST /api/factures/[id]/send", () => {
     expect(p.replyTo).toBe("artisan.test@example.com");
     expect(p.subject).toBe("Facture FAC-2026-001 — Artisan Fictif");
     expect(p.text).toBe(
-      "Bonjour Client Fictif,\n\nVeuillez trouver ci-joint votre facture FAC-2026-001 d'un montant de 55,36 € TTC.\n\nCordialement,\nArtisan Fictif"
+      "Bonjour Client Fictif,\n\nVeuillez trouver ci-joint votre facture FAC-2026-001 d'un montant de 55,36 € TTC, à régler au plus tard le 03/12/2026.\n\nCordialement,\nArtisan Fictif"
     );
+    // Échéance postérieure à l'émission : jamais « à réception » dans le PDF joint.
+    expect(pdfText(p.attachments[0].content)).not.toMatch(/r[ée]ception/i);
+    expect(pdfText(p.attachments[0].content)).toContain("Date d'échéance du paiement : 03/12/2026.");
     expect(p).not.toHaveProperty("html");
 
     expect(p.attachments).toHaveLength(1);
@@ -482,7 +491,7 @@ describe("raison sociale dans l'objet (anomalie « — Gestly »)", () => {
       to: "client.test@example.com",
       subject: "Facture FAC-2026-001 — Artisan Fictif",
       message:
-        "Bonjour Client Fictif,\n\nVeuillez trouver ci-joint votre facture FAC-2026-001 d'un montant de 55,36 € TTC.\n\nCordialement,\nArtisan Fictif",
+        "Bonjour Client Fictif,\n\nVeuillez trouver ci-joint votre facture FAC-2026-001 d'un montant de 55,36 € TTC, à régler au plus tard le 03/12/2026.\n\nCordialement,\nArtisan Fictif",
     });
   });
 

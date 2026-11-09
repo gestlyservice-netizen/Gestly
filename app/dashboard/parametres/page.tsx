@@ -501,7 +501,10 @@ export default function ParametresPage() {
           </CardHeader>
           <CardContent className="space-y-5">
 
-            <Field label="Conditions de paiement par défaut">
+            <Field
+              label="Conditions de paiement par défaut"
+              hint="Sur une facture dont l'échéance est postérieure à l'émission, la date d'échéance est imprimée à la place de toute mention « à réception » ; vos autres conditions (ex. mode de paiement) sont conservées."
+            >
               <Textarea
                 {...register("conditionsPaiement")}
                 placeholder="Règlement à réception de facture."

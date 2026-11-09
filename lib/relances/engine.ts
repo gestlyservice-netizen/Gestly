@@ -10,6 +10,8 @@ import { renderMessage } from "./messages";
 import { factureBalance } from "@/lib/factures/balance";
 import { joursDeRetard } from "@/lib/factures/echeance";
 import { createNotification, createNotificationOnce } from "@/lib/notifications";
+import { parseEmailAddress } from "@/lib/email/address";
+import { documentEmailFrom, documentEmailSubject, raisonSociale, replyToFrom } from "@/lib/documents/document-email";
 
 const MAX_ATTEMPTS = 5;
 const MIN_SMS_CREDITS = 10;
@@ -99,6 +101,10 @@ async function relancerCompte(settings: RelanceSettingsRow, summary: RelancesSum
   if (!user || isSubscriptionBlocked(user)) return;
 
   const emailEnabled = canSendEmail();
+  // Raison sociale des Paramètres (objet, signature) et adresse de réponse :
+  // mêmes règles que l'envoi manuel des devis et factures.
+  const entreprise = await prisma.settings.findUnique({ where: { userId: settings.userId } });
+  const companyName = raisonSociale(entreprise, user);
 
   const factures = await prisma.facture.findMany({
     where: {
@@ -143,7 +149,7 @@ async function relancerCompte(settings: RelanceSettingsRow, summary: RelancesSum
 
     const vars = {
       clientName: facture.client.name,
-      companyName: user.companyName,
+      companyName,
       number: facture.number,
       amount: fmtAmount(outstanding),
       daysLate: joursRetard,
@@ -154,7 +160,10 @@ async function relancerCompte(settings: RelanceSettingsRow, summary: RelancesSum
     if (settings.canalSms) canaux.push("sms");
 
     for (const canal of canaux as Canal[]) {
-      if (canal === "email" && !facture.client.email) {
+      // Adresse absente ou invalide (ancienne fiche) : ignorée, sans
+      // réservation ni tentatives vouées à l'échec.
+      const emailClient = canal === "email" ? parseEmailAddress(facture.client.email) : null;
+      if (canal === "email" && !emailClient) {
         summary.skipped++;
         continue;
       }
@@ -176,10 +185,11 @@ async function relancerCompte(settings: RelanceSettingsRow, summary: RelancesSum
           );
           // Lève une exception si Resend refuse l'email → relance "echec".
           await sendEmail({
-            from: process.env.RESEND_FROM_EMAIL ?? "Gestly <onboarding@resend.dev>",
-            to: facture.client.email!,
-            subject: `Relance — Facture ${facture.number}`,
+            from: documentEmailFrom(),
+            to: emailClient!,
+            subject: documentEmailSubject("Relance — Facture", facture.number, companyName),
             text: message,
+            ...replyToFrom(entreprise?.emailPro),
           });
         } else {
           if (smsBalance === undefined) {

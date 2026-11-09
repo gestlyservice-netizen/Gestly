@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { CLIENT_EMAIL_ERROR, normalizeClientEmail } from "@/lib/clients/client-email";
 import Link from "next/link";
 import { previewTotals } from "@/lib/documents/totals";
 import { defaultDueDateIso, jourParis } from "@/lib/factures/echeance";
+import { MentionEcheance } from "@/components/factures/mention-echeance";
 import { Plus, Trash2, Loader2, ChevronLeft, UserPlus, Search } from "lucide-react";
 import {
   Dialog,
@@ -41,7 +43,7 @@ type FactureForm = z.infer<typeof factureSchema>;
 
 const clientFormSchema = z.object({
   name:    z.string().min(1, "Le nom est obligatoire"),
-  email:   z.string().email("Email invalide").optional().or(z.literal("")),
+  email:   z.string().optional().refine((v) => normalizeClientEmail(v).ok, { message: CLIENT_EMAIL_ERROR }),
   phone:   z.string().optional(),
   address: z.string().optional(),
 });
@@ -107,6 +109,7 @@ export default function NouvelleFacturePage() {
 
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" });
+  const watchedDueDate = useWatch({ control, name: "dueDate" });
 
   /* ── Formulaire ajout client rapide ─────────────────────── */
   const {
@@ -323,6 +326,7 @@ export default function NouvelleFacturePage() {
               ) : (
                 <p className="text-xs text-slate-400">30 jours après l&apos;émission par défaut, modifiable</p>
               )}
+              <MentionEcheance dueDate={watchedDueDate} />
             </div>
           </div>
         </div>
